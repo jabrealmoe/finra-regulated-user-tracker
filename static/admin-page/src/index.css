@@ -371,3 +371,79 @@ tr:hover td {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* Pacman game styles */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-center { justify-content: center; }
+.text-center { text-align: center; }
+.mx-auto { margin-left: auto; margin-right: auto; }
+.mb-2 { margin-bottom: 8px; }
+.mb-6 { margin-bottom: 24px; }
+.mb-8 { margin-bottom: 32px; }
+.mb-10 { margin-bottom: 40px; }
+.mt-2 { margin-top: 8px; }
+.relative { position: relative; }
+.rounded-xl { border-radius: 12px; }
+.overflow-hidden { overflow: hidden; }
+.shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+.border-4 { border-width: 4px; }
+.border-slate-700 { border-color: #334155; }
+.bg-black { background-color: #000; }
+.p-8 { padding: 32px; }
+.text-4xl { font-size: 36px; }
+.text-yellow-400 { color: #facc15; }
+.text-sm { font-size: 14px; }
+.font-bold { font-weight: 700; }
+.bg-yellow-400 { background-color: #facc15; }
+.rounded-full { border-radius: 9999px; }
+.w-12 { width: 48px; }
+.h-12 { height: 48px; }
+.absolute { position: absolute; }
+.right-0 { right: 0; }
+.top-1\/2 { top: 50%; }
+.w-0 { width: 0; }
+.h-0 { height: 0; }
+.border-t-transparent { border-top-color: transparent; }
+.border-b-transparent { border-bottom-color: transparent; }
+.border-l-black { border-left-color: black; }
+.px-8 { padding-left: 32px; padding-right: 32px; }
+.py-4 { padding-top: 16px; padding-bottom: 16px; }
+.text-xl { font-size: 20px; }
+.bottom-4 { bottom: 16px; }
+.left-0 { left: 0; }
+.right-0 { right: 0; }
+.text-blue-400 { color: #60a5fa; }
+.text-lg { font-size: 18px; }
+.right-4 { right: 16px; }
+.p-2 { padding: 8px; }
+.bg-green-600 { background-color: #16a34a; }
+.bg-slate-600 { background-color: #475569; }
+.w-5 { width: 20px; }
+.h-5 { height: 20px; }
+.outline-none { outline: none; }
+.text-white { color: #fff; }
+.space-x-8 > * + * { margin-left: 32px; }
+
+/* Custom gradient background for Pacman Start Game button */
+.bg-gradient-to-r {
+  background-image: linear-gradient(to right, #facc15, #eab308);
+}
+.bg-gradient-to-r:hover {
+  background-image: linear-gradient(to right, #fde047, #facc15);
+}
+.transform {
+  transition: transform 0.15s ease;
+}
+.hover\:scale-105:hover {
+  transform: scale(1.05);
+}
+.transition-all {
+  transition: all 0.2s ease;
+}
+.text-red-500 { color: #ef4444; }
+.text-white\/90 { color: rgba(255, 255, 255, 0.9); }
+.text-white\/50 { color: rgba(255, 255, 255, 0.5); }
+.tracking-widest { letter-spacing: 0.1em; }
+.block { display: block; }

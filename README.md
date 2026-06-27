@@ -1,6 +1,6 @@
-# Dr. Jira Dictate
+# Dr. Jira Finra
 
-![Dr. Jira Wizard](assets/wizard.png)
+![Dr. Jira Finra](assets/wizard.png)
 
 ## Overview
 
@@ -10,11 +10,11 @@ This tool is especially useful for mobile users, field technicians, or anyone wh
 
 ## How It Works
 
-1.  **Record**: Open the Dr. Jira Dictate app in Jira and record your issue details verbally.
-2.  **Process**: The audio is securely transmitted to an n8n workflow.
-3.  **Transcribe & Analyze**: The workflow uses AI (like OpenAI Whisper) to transcribe the audio and structure the information.
-4.  **Create**: A new Jira issue is automatically created with the transcribed details.
-5.  **Feedback**: The app updates to confirming the issue creation.
+1. **Record**: Open the Dr. Jira Dictate app in Jira and record your issue details verbally.
+2. **Process**: The audio is securely transmitted to an n8n workflow.
+3. **Transcribe & Analyze**: The workflow uses AI (like OpenAI Whisper) to transcribe the audio and structure the information.
+4. **Create**: A new Jira issue is automatically created with the transcribed details.
+5. **Feedback**: The app updates to confirming the issue creation.
 
 ## System Flow
 
@@ -32,6 +32,6 @@ graph TD
 
 ## Setup & Deployment
 
-1.  **Install Dependencies**: `npm install`
-2.  **Deploy**: `forge deploy`
-3.  **Install**: `forge install`
+1. **Install Dependencies**: `npm install`
+2. **Deploy**: `forge deploy`
+3. **Install**: `forge install`

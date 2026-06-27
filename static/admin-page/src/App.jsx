@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@forge/bridge';
+import PacManGame from './components/PacManGame';
 
 export default function App() {
   const [config, setConfigState] = useState(null);
@@ -7,6 +8,9 @@ export default function App() {
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message: string }
+  
+  // Pac-Man Game visibility
+  const [showGame, setShowGame] = useState(false);
   
   // Date filters for audit log queries
   const [startDate, setStartDate] = useState('');
@@ -184,9 +188,18 @@ export default function App() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary" onClick={() => setShowGame(!showGame)}>
+            {showGame ? 'Hide Game' : '🎮 Play Pac-Man'}
+          </button>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
       </header>
+
+      {showGame && (
+        <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'center' }}>
+          <PacManGame />
+        </div>
+      )}
 
       {saveStatus && (
         <div className={`alert alert-${saveStatus.type}`}>
