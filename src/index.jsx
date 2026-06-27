@@ -1,5 +1,5 @@
 import Resolver from '@forge/resolver';
-import { asApp } from '@forge/api';
+import { asApp, route } from '@forge/api';
 import { 
   getConfig, 
   getRegulatedUsersInvolved, 
@@ -105,7 +105,7 @@ export async function handleJiraEvent(event, context) {
       if (!issueId) return;
 
       // Re-fetch description to parse mentions safely (avoiding payload truncation)
-      const res = await asApp().requestJira(`/rest/api/3/issue/${issueId}`);
+      const res = await asApp().requestJira(route`/rest/api/3/issue/${issueId}`);
       if (!res.ok) throw new Error(`Failed to fetch issue: ${res.status}`);
       
       const issueData = await res.json();
@@ -127,7 +127,7 @@ export async function handleJiraEvent(event, context) {
       if (!commentId || !issueId) return;
 
       // Re-fetch comment to extract mentions & details
-      const res = await asApp().requestJira(`/rest/api/3/issue/${issueId}/comment/${commentId}`);
+      const res = await asApp().requestJira(route`/rest/api/3/issue/${issueId}/comment/${commentId}`);
       if (!res.ok) throw new Error(`Failed to fetch comment: ${res.status}`);
       
       const commentData = await res.json();
@@ -151,7 +151,7 @@ export async function handleJiraEvent(event, context) {
       if (!attachmentId) return;
 
       // Re-fetch attachment metadata
-      const res = await asApp().requestJira(`/rest/api/3/attachment/${attachmentId}`);
+      const res = await asApp().requestJira(route`/rest/api/3/attachment/${attachmentId}`);
       if (!res.ok) throw new Error(`Failed to fetch attachment: ${res.status}`);
       
       const attachmentData = await res.json();
