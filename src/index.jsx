@@ -1,5 +1,5 @@
 import Resolver from '@forge/resolver';
-import { asApp } from '@forge/api';
+import { asApp, route } from '@forge/api';
 import { 
   getConfig, 
   getRegulatedUsersInvolved, 
@@ -105,7 +105,7 @@ export async function handleJiraEvent(event, context) {
       if (!issueId) return;
 
       // Re-fetch description to parse mentions safely (avoiding payload truncation)
-      const res = await asApp().requestJira(`/rest/api/3/issue/${issueId}`);
+      const res = await asApp().requestJira(route`/rest/api/3/issue/${issueId}`);
       if (!res.ok) throw new Error(`Failed to fetch issue: ${res.status}`);
       
       const issueData = await res.json();
@@ -127,7 +127,7 @@ export async function handleJiraEvent(event, context) {
       if (!commentId || !issueId) return;
 
       // Re-fetch comment to extract mentions & details
-      const res = await asApp().requestJira(`/rest/api/3/issue/${issueId}/comment/${commentId}`);
+      const res = await asApp().requestJira(route`/rest/api/3/issue/${issueId}/comment/${commentId}`);
       if (!res.ok) throw new Error(`Failed to fetch comment: ${res.status}`);
       
       const commentData = await res.json();
@@ -151,7 +151,7 @@ export async function handleJiraEvent(event, context) {
       if (!attachmentId) return;
 
       // Re-fetch attachment metadata
-      const res = await asApp().requestJira(`/rest/api/3/attachment/${attachmentId}`);
+      const res = await asApp().requestJira(route`/rest/api/3/attachment/${attachmentId}`);
       if (!res.ok) throw new Error(`Failed to fetch attachment: ${res.status}`);
       
       const attachmentData = await res.json();
@@ -196,6 +196,8 @@ export async function handleJiraEvent(event, context) {
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
       }
+    } else {
+      console.log(`No FINRA regulated users involved in Jira event: ${event.eventType}. Skipping database insert and webhook.`);
     }
   } catch (error) {
     console.error(`Error processing Jira trigger ${event.eventType}:`, error);
@@ -247,7 +249,7 @@ export async function handleConfluenceEvent(event, context) {
       if (!commentId) return;
 
       // Re-fetch comment body (v2 API) to get ADF format for mention extraction
-      const res = await asApp().requestConfluence(`/wiki/api/v2/comments/${commentId}?body-format=atlas_doc_format`);
+      const res = await asApp().requestConfluence(route`/wiki/api/v2/comments/${commentId}?body-format=atlas_doc_format`);
       if (!res.ok) throw new Error(`Failed to fetch Confluence comment: ${res.status}`);
       
       const commentData = await res.json();
@@ -276,7 +278,7 @@ export async function handleConfluenceEvent(event, context) {
       if (!pageId) return;
 
       // Re-fetch page content (v2 API) to parse ADF format for mentions
-      const res = await asApp().requestConfluence(`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
+      const res = await asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
       if (!res.ok) throw new Error(`Failed to fetch Confluence page: ${res.status}`);
 
       const pageData = await res.json();
@@ -302,7 +304,7 @@ export async function handleConfluenceEvent(event, context) {
       const attachmentId = event.attachment?.id;
       if (!attachmentId) return;
 
-      const res = await asApp().requestConfluence(`/wiki/api/v2/attachments/${attachmentId}`);
+      const res = await asApp().requestConfluence(route`/wiki/api/v2/attachments/${attachmentId}`);
       if (!res.ok) throw new Error(`Failed to fetch Confluence attachment: ${res.status}`);
 
       const attData = await res.json();
@@ -345,6 +347,8 @@ export async function handleConfluenceEvent(event, context) {
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
       }
+    } else {
+      console.log(`No FINRA regulated users involved in Confluence event: ${event.eventType}. Skipping database insert and webhook.`);
     }
   } catch (error) {
     console.error(`Error processing Confluence trigger ${event.eventType}:`, error);
@@ -368,13 +372,13 @@ export async function pollReactions(event, context) {
     const { kvs } = require('@forge/kvs');
 
     // 1. Fetch recently modified Confluence pages (representing active content)
-    const pagesRes = await asApp().requestConfluence('/wiki/api/v2/pages?sort=-modified-date&limit=25');
+    const pagesRes = await asApp().requestConfluence(route`/wiki/api/v2/pages?sort=-modified-date&limit=25`);
     if (!pagesRes.ok) throw new Error(`Failed to fetch recent pages: ${pagesRes.status}`);
     const pagesData = await pagesRes.json();
     const pages = pagesData.results || [];
 
     // Also fetch recently modified blogposts
-    const blogsRes = await asApp().requestConfluence('/wiki/api/v2/blogposts?sort=-modified-date&limit=15');
+    const blogsRes = await asApp().requestConfluence(route`/wiki/api/v2/blogposts?sort=-modified-date&limit=15`);
     let blogposts = [];
     if (blogsRes.ok) {
       const blogsData = await blogsRes.json();
@@ -386,7 +390,7 @@ export async function pollReactions(event, context) {
     for (const item of contents) {
       const contentId = item.id;
       const type = item.type;
-      const endpoint = type === 'page' ? `/wiki/api/v2/pages/${contentId}/likes/users` : `/wiki/api/v2/blogposts/${contentId}/likes/users`;
+      const endpoint = type === 'page' ? route`/wiki/api/v2/pages/${contentId}/likes/users` : route`/wiki/api/v2/blogposts/${contentId}/likes/users`;
 
       // Get users who liked the content
       const likesRes = await asApp().requestConfluence(endpoint);
