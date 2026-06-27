@@ -10,6 +10,8 @@ const DEFAULT_CONFIG = {
   groupName: 'FINRA-Regulated',
   accountIds: '', // comma-separated list of account IDs
   ttl: 300, // cache TTL in seconds (default 5 mins)
+  webhookTarget: 'disabled', // 'disabled', 'test', 'prod', 'custom'
+  customWebhookUrl: '',
   categories: {
     jira: {
       mentions: true,
@@ -225,5 +227,87 @@ export async function getRegulatedUsersInvolved(accountIds, product, config) {
     const groupName = config.groupName || 'FINRA-Regulated';
     const groupMembers = await getGroupMembersCached(groupName, product, config.ttl);
     return uniqueIds.filter(id => groupMembers.includes(id));
+  }
+}
+
+/**
+ * Formats compliance audit record data into an RFC 822 / EML formatted email string.
+ * @param {object} logData 
+ * @returns {string} The formatted EML text.
+ */
+export function generateEml(logData) {
+  const dateStr = new Date(logData.ts || Date.now()).toUTCString();
+  const subject = `FINRA Compliance Alert: [${logData.product.toUpperCase()}] ${logData.eventType.split(':').pop()}`;
+  
+  return [
+    `From: compliance-tracker@forge.local`,
+    `To: audit-mailbox@banking.internal`,
+    `Subject: ${subject}`,
+    `Date: ${dateStr}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset="utf-8"`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    `=== FINRA COMPLIANCE AUDIT RECORD ===`,
+    `Event ID: ${logData.eventId}`,
+    `Timestamp: ${new Date(logData.ts || Date.now()).toISOString()}`,
+    `Product: ${logData.product}`,
+    `Event Type: ${logData.eventType}`,
+    `Regulated User ID: ${logData.regulatedUserId}`,
+    `Actor ID: ${logData.actorId}`,
+    `Object Type: ${logData.objectType}`,
+    `Object ID: ${logData.objectId}`,
+    `Container ID: ${logData.containerId}`,
+    `Details: ${JSON.stringify(logData.detail, null, 2)}`,
+    `=====================================`
+  ].join('\r\n');
+}
+
+/**
+ * Sends a webhook payload in EML format if configured.
+ * @param {object} logData 
+ */
+export async function sendWebhookIfConfigured(logData) {
+  try {
+    const config = await getConfig();
+    if (!config.webhookTarget || config.webhookTarget === 'disabled') {
+      return;
+    }
+
+    let url = '';
+    if (config.webhookTarget === 'test') {
+      url = 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5';
+    } else if (config.webhookTarget === 'prod') {
+      url = 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5';
+    } else if (config.webhookTarget === 'custom') {
+      url = config.customWebhookUrl;
+    }
+
+    if (!url) {
+      console.log('Webhook is enabled but no target URL was configured.');
+      return;
+    }
+
+    const emlContent = generateEml(logData);
+
+    console.log(`Sending compliance EML webhook to: ${url}`);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'message/rfc822',
+        'X-Audit-Event-ID': logData.eventId,
+        'X-Audit-Product': logData.product,
+        'X-Audit-Event-Type': logData.eventType
+      },
+      body: emlContent
+    });
+
+    if (!response.ok) {
+      console.error(`Webhook delivery failed with status ${response.status}: ${await response.text()}`);
+    } else {
+      console.log('Webhook delivered successfully.');
+    }
+  } catch (error) {
+    console.error('Failed to send compliance webhook:', error);
   }
 }

@@ -1,37 +1,37 @@
-# Forge Hello World
+# Dr. Jira Finra
 
-This project contains a Forge app written in Javascript that logs ```Hello World!``` when an issue is created in Jira.
+![Dr. Jira Finra](assets/wizard.png)
 
-See [developer.atlassian.com/platform/forge/](https://developer.atlassian.com/platform/forge) for documentation and tutorials explaining Forge.
+## Overview
 
-## Requirements
+**Dr. Jira Dictate** is an AI-powered Atlassian Forge app that revolutionizes how you create Jira issues. Instead of typing out lengthy descriptions, you simply speak. The app records your voice, processes it using advanced AI, and automatically populates structured Jira issues with a Summary and Description.
 
-See [Set up Forge](https://developer.atlassian.com/platform/forge/set-up-forge/) for instructions to get set up.
+This tool is especially useful for mobile users, field technicians, or anyone who prefers dictation over typing, ensuring that no detail is lost in translation.
 
-## Quick start
+## How It Works
 
-- Modify your app by editing the `src/index.jsx` file.
+1. **Record**: Open the Dr. Jira Dictate app in Jira and record your issue details verbally.
+2. **Process**: The audio is securely transmitted to an n8n workflow.
+3. **Transcribe & Analyze**: The workflow uses AI (like OpenAI Whisper) to transcribe the audio and structure the information.
+4. **Create**: A new Jira issue is automatically created with the transcribed details.
+5. **Feedback**: The app updates to confirming the issue creation.
 
-- Build and deploy your app by running:
+## System Flow
+
+```mermaid
+graph TD
+    A[User] -->|Dictates Audio| B(Dr. Jira Dictate App)
+    B -->|Sends Audio Blob| C{n8n Webhook}
+    C -->|Process Audio| D[AI Transcription Service]
+    D -->|Extract Details| E[Issue Formatter]
+    E -->|Create Issue| F[(Jira Cloud)]
+    F -->|Return Issue Key| C
+    C -->|Success Response| B
+    B -->|Display Success| A
 ```
-forge deploy
-```
 
-- Install your app in an Atlassian site by running:
-```
-forge install
-```
+## Setup & Deployment
 
-- Develop your app by running `forge tunnel` to proxy invocations locally:
-```
-forge tunnel
-```
-
-### Notes
-- Use the `forge deploy` command when you want to persist code changes.
-- Use the `forge install` command when you want to install the app on a new site.
-- Once the app is installed on a site, the site picks up the new app changes you deploy without needing to rerun the install command.
-
-## Support
-
-See [Get help](https://developer.atlassian.com/platform/forge/get-help/) for how to get help and provide feedback.
+1. **Install Dependencies**: `npm install`
+2. **Deploy**: `forge deploy`
+3. **Install**: `forge install`

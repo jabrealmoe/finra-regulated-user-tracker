@@ -3,7 +3,8 @@ import { asApp } from '@forge/api';
 import { 
   getConfig, 
   getRegulatedUsersInvolved, 
-  walkAdfForMentions 
+  walkAdfForMentions,
+  sendWebhookIfConfigured
 } from './lib/utils';
 import { 
   insertAuditLog, 
@@ -177,7 +178,7 @@ export async function handleJiraEvent(event, context) {
       
       // Log for each unique regulated user involved (usually 1, but handles multiple)
       for (const regUserId of regulatedInvolved) {
-        await insertAuditLog({
+        const logData = {
           eventId: `${eventId}:${regUserId}`,
           ts: event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now(),
           product: 'jira',
@@ -191,7 +192,9 @@ export async function handleJiraEvent(event, context) {
             ...detail,
             involvedCount: regulatedInvolved.length
           }
-        });
+        };
+        await insertAuditLog(logData);
+        await sendWebhookIfConfigured(logData);
       }
     }
   } catch (error) {
@@ -324,7 +327,7 @@ export async function handleConfluenceEvent(event, context) {
       console.log(`FINRA Regulated users involved in Confluence event: ${regulatedInvolved.join(', ')}`);
       
       for (const regUserId of regulatedInvolved) {
-        await insertAuditLog({
+        const logData = {
           eventId: `${eventId}:${regUserId}`,
           ts: event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now(),
           product: 'confluence',
@@ -338,7 +341,9 @@ export async function handleConfluenceEvent(event, context) {
             ...detail,
             involvedCount: regulatedInvolved.length
           }
-        });
+        };
+        await insertAuditLog(logData);
+        await sendWebhookIfConfigured(logData);
       }
     }
   } catch (error) {
@@ -418,7 +423,7 @@ export async function pollReactions(event, context) {
               
               // Prevent duplicate insertion
               if (!(await isDuplicateEvent(eventId))) {
-                await insertAuditLog({
+                const logData = {
                   eventId,
                   ts: Date.now(),
                   product: 'confluence',
@@ -434,7 +439,9 @@ export async function pollReactions(event, context) {
                     authorId,
                     reconciliation: true
                   }
-                });
+                };
+                await insertAuditLog(logData);
+                await sendWebhookIfConfigured(logData);
               }
             }
           }

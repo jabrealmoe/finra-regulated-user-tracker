@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@forge/bridge';
+import PacManGame from './components/PacManGame';
 
 export default function App() {
   const [config, setConfigState] = useState(null);
@@ -7,6 +8,9 @@ export default function App() {
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message: string }
+  
+  // Pac-Man Game visibility
+  const [showGame, setShowGame] = useState(false);
   
   // Date filters for audit log queries
   const [startDate, setStartDate] = useState('');
@@ -184,9 +188,18 @@ export default function App() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button className="btn btn-secondary" onClick={() => setShowGame(!showGame)}>
+            {showGame ? 'Hide Game' : '🎮 Play Pac-Man'}
+          </button>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
       </header>
+
+      {showGame && (
+        <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'center' }}>
+          <PacManGame />
+        </div>
+      )}
 
       {saveStatus && (
         <div className={`alert alert-${saveStatus.type}`}>
@@ -380,6 +393,54 @@ export default function App() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Webhook Configuration Card */}
+        <div className="card" style={{ marginTop: '20px' }}>
+          <h2>Webhook Configuration</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+            Configure automatic forwarding of compliance audit logs in EML email format to an n8n webhook or custom HTTP receiver.
+          </p>
+          
+          <div className="form-group">
+            <label>Webhook Destination Target</label>
+            <select 
+              value={config.webhookTarget || 'disabled'} 
+              onChange={(e) => setConfigState(prev => ({ ...prev, webhookTarget: e.target.value }))}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="test">n8n Test Webhook (Sandbox)</option>
+              <option value="prod">n8n Production Webhook (Active)</option>
+              <option value="custom">Custom Webhook URL</option>
+            </select>
+          </div>
+
+          {config.webhookTarget === 'custom' && (
+            <div className="form-group">
+              <label>Custom Webhook URL</label>
+              <input 
+                type="url" 
+                value={config.customWebhookUrl || ''} 
+                onChange={(e) => setConfigState(prev => ({ ...prev, customWebhookUrl: e.target.value }))}
+                placeholder="https://your-banking-middleware.com/webhook"
+                required
+              />
+              <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                Note: The destination host domain must be whitelisted in the app manifest.yml.
+              </small>
+            </div>
+          )}
+
+          {config.webhookTarget !== 'disabled' && config.webhookTarget !== 'custom' && (
+            <div style={{ marginTop: '8px', padding: '12px', background: '#f4f5f7', borderRadius: '4px', borderLeft: '3px solid var(--accent-color)' }}>
+              <small style={{ fontSize: '12px', color: '#172b4d', fontWeight: '500' }}>
+                Target Endpoint: {config.webhookTarget === 'test' 
+                  ? 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                  : 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                }
+              </small>
+            </div>
+          )}
         </div>
       </form>
 
