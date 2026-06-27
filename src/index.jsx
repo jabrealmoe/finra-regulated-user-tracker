@@ -196,6 +196,8 @@ export async function handleJiraEvent(event, context) {
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
       }
+    } else {
+      console.log(`No FINRA regulated users involved in Jira event: ${event.eventType}. Skipping database insert and webhook.`);
     }
   } catch (error) {
     console.error(`Error processing Jira trigger ${event.eventType}:`, error);
@@ -345,6 +347,8 @@ export async function handleConfluenceEvent(event, context) {
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
       }
+    } else {
+      console.log(`No FINRA regulated users involved in Confluence event: ${event.eventType}. Skipping database insert and webhook.`);
     }
   } catch (error) {
     console.error(`Error processing Confluence trigger ${event.eventType}:`, error);

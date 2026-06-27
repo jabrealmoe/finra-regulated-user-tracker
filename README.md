@@ -1,33 +1,30 @@
-# Dr. Jira Finra
+# Dr. Jira FINRA Regulated User Tracker
 
 ![Dr. Jira Finra](assets/wizard.png)
 
 ## Overview
 
-**Dr. Jira Finra Regulated Users** is an AI-powered Atlassian Forge app that revolutionizes how you create Jira issues. Instead of typing out lengthy descriptions, you simply speak. The app records your voice, processes it using advanced AI, and automatically populates structured Jira issues with a Summary and Description.
+**Dr. Jira FINRA Regulated User Tracker** is a compliance and auditing Atlassian Forge application. It automatically monitors and tracks activities (comments, mentions, attachments, and reactions) in Jira and Confluence performed by regulated users (such as stock brokers or financial representatives). 
 
-This tool is especially useful for mobile users, field technicians, or anyone who prefers dictation over typing, ensuring that no detail is lost in translation.
+The app archives compliance logs by converting the event details into standardized EML (RFC 822) mail formats and dispatching them to an external auditing/compliance archiving endpoint (such as an n8n webhook workflow).
 
 ## How It Works
 
-1. **Record**: Open the Dr. Jira Finra Regulated Users app in Jira and record your issue details verbally.
-2. **Process**: The audio is securely transmitted to an n8n workflow.
-3. **Transcribe & Analyze**: The workflow uses AI (like OpenAI Whisper) to transcribe the audio and structure the information.
-4. **Create**: A new Jira issue is automatically created with the transcribed details.
-5. **Feedback**: The app updates to confirming the issue creation.
+1. **Capture**: The app captures real-time events from Jira and Confluence (or via a scheduled reaction poller for page likes).
+2. **Filter**: The app checks the event actors and mentioned users against a list of FINRA regulated users defined in the Admin configuration.
+3. **Format**: If any regulated users are involved, the app generates a standardized EML file representing the audit log.
+4. **Record & Archive**: The event is recorded in a secure Forge SQL database and the EML payload is POSTed via a webhook to the configured target server (e.g. n8n).
 
 ## System Flow
 
 ```mermaid
 graph TD
-    A[User] -->|Finra Regulated Userss Audio| B(Dr. Jira Finra Regulated Users App)
-    B -->|Sends Audio Blob| C{n8n Webhook}
-    C -->|Process Audio| D[AI Transcription Service]
-    D -->|Extract Details| E[Issue Formatter]
-    E -->|Create Issue| F[(Jira Cloud)]
-    F -->|Return Issue Key| C
-    C -->|Success Response| B
-    B -->|Display Success| A
+    A[Jira / Confluence Event] --> B(Atlassian Forge Trigger)
+    B --> C{Is Regulated User Involved?}
+    C -->|No| D[Log skipped & Terminate]
+    C -->|Yes| E[Generate EML Compliance Payload]
+    E --> F[Write Audit Log to Forge SQL]
+    E --> G[POST EML Webhook to n8n / Archiver]
 ```
 
 ## Setup & Deployment
