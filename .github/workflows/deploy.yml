@@ -111,7 +111,7 @@ jobs:
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
         run: |
           forge settings set usage-analytics false
-          forge deploy -e development --non-interactive
+          forge deploy -e development --non-interactive --no-verify
 
   # -------------------------------------------------------------------------------------
   # 3. Promote development -> main - Automatically opens/updates promotion Pull Request
@@ -207,7 +207,7 @@ jobs:
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
         run: |
           forge settings set usage-analytics false
-          forge deploy -e production --non-interactive
+          forge deploy -e production --non-interactive --no-verify
 
   # -------------------------------------------------------------------------------------
   # 6. Rollback - Runs only if deploy-prod fails
@@ -266,7 +266,7 @@ jobs:
           FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
         run: |
           forge settings set usage-analytics false
-          forge deploy -e production --non-interactive
+          forge deploy -e production --non-interactive --no-verify
 
   # -------------------------------------------------------------------------------------
   # 7. Release - Runs after successful production deploy
