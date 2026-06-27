@@ -1,0 +1,21 @@
+{
+  "name": "finra-admin-page",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@forge/bridge": "^2.6.0"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.2.1"
+  }
+}

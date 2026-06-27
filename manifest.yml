@@ -1,0 +1,70 @@
+modules:
+  trigger:
+    - key: jira-events-tracker
+      function: handleJiraEvent
+      events:
+        - avi:jira:mentioned:issue
+        - avi:jira:commented:issue
+        - avi:jira:created:attachment
+      filter:
+        ignoreSelf: true
+        expression: "event.issue != null || event.comment != null || event.attachment != null"
+    - key: confluence-events-tracker
+      function: handleConfluenceEvent
+      events:
+        - avi:confluence:created:comment
+        - avi:confluence:updated:comment
+        - avi:confluence:created:page
+        - avi:confluence:updated:page
+        - avi:confluence:created:attachment
+        - avi:confluence:updated:attachment
+      filter:
+        expression: "event.comment != null || event.page != null || event.attachment != null"
+  scheduledTrigger:
+    - key: reaction-poller
+      function: pollReactions
+      interval: fiveMinute
+  jira:adminPage:
+    - key: finra-admin-page-jira
+      resource: admin-ui
+      title: FINRA Regulated User Tracker
+      resolver:
+        function: resolver
+  confluence:globalSettings:
+    - key: finra-admin-page-confluence
+      resource: admin-ui
+      title: FINRA Regulated User Tracker
+      resolver:
+        function: resolver
+  sql:
+    - key: main
+      engine: mysql
+  function:
+    - key: handleJiraEvent
+      handler: index.handleJiraEvent
+    - key: handleConfluenceEvent
+      handler: index.handleConfluenceEvent
+    - key: pollReactions
+      handler: index.pollReactions
+    - key: resolver
+      handler: index.resolve
+resources:
+  - key: admin-ui
+    path: static/admin-page/dist
+app:
+  runtime:
+    name: nodejs24.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/b26fa69d-54fd-48dd-8444-0955cd6e4ace
+permissions:
+  scopes:
+    - read:jira-work
+    - read:jira-user
+    - manage:jira-configuration
+    - read:confluence-content.all
+    - read:confluence-content.summary
+    - read:confluence-user
+    - read:page:confluence
+    - read:attachment:confluence
+    - storage:app

@@ -1,0 +1,229 @@
+import { asApp } from '@forge/api';
+import { kvs } from '@forge/kvs';
+
+const CONFIG_KEY = 'finra_config';
+const CACHE_PREFIX = 'group_cache_';
+
+// Default configuration settings
+const DEFAULT_CONFIG = {
+  userSource: 'group', // 'group' or 'list'
+  groupName: 'FINRA-Regulated',
+  accountIds: '', // comma-separated list of account IDs
+  ttl: 300, // cache TTL in seconds (default 5 mins)
+  categories: {
+    jira: {
+      mentions: true,
+      comments: true,
+      attachments: true,
+      reactions: true
+    },
+    confluence: {
+      mentions: true,
+      comments: true,
+      attachments: true,
+      reactions: true
+    }
+  }
+};
+
+/**
+ * Retrieves the application configuration from Forge Key-Value Storage.
+ * @returns {Promise<object>} The configuration object.
+ */
+export async function getConfig() {
+  try {
+    const config = await kvs.get(CONFIG_KEY);
+    return config ? { ...DEFAULT_CONFIG, ...config } : DEFAULT_CONFIG;
+  } catch (error) {
+    console.error('Failed to read config from KVS:', error);
+    return DEFAULT_CONFIG;
+  }
+}
+
+/**
+ * Saves the application configuration to Forge Key-Value Storage.
+ * @param {object} config 
+ */
+export async function setConfig(config) {
+  try {
+    await kvs.set(CONFIG_KEY, config);
+    console.log('Config updated in KVS.');
+  } catch (error) {
+    console.error('Failed to write config to KVS:', error);
+    throw error;
+  }
+}
+
+/**
+ * Recursively walks an ADF (Atlassian Document Format) tree to extract all mentioned user account IDs.
+ * @param {object} adf Node of the ADF document
+ * @returns {Array<string>} List of mentioned user account IDs
+ */
+export function walkAdfForMentions(adf) {
+  if (!adf) return [];
+  const mentions = new Set();
+
+  function walk(node) {
+    if (!node) return;
+    if (node.type === 'mention' && node.attrs && node.attrs.id) {
+      mentions.add(node.attrs.id);
+    }
+    if (node.content && Array.isArray(node.content)) {
+      for (const child of node.content) {
+        walk(child);
+      }
+    }
+  }
+
+  walk(adf);
+  return Array.from(mentions);
+}
+
+/**
+ * Fetches group members from Jira or Confluence APIs with caching in Forge KVS.
+ * @param {string} groupName Name of the Atlassian group
+ * @param {string} product 'jira' or 'confluence'
+ * @param {number} ttlSeconds Cache TTL in seconds
+ * @returns {Promise<Array<string>>} List of account IDs in the group
+ */
+export async function getGroupMembersCached(groupName, product, ttlSeconds = 300) {
+  if (!groupName) return [];
+
+  const cacheKey = `${CACHE_PREFIX}${product}_${groupName}`;
+  
+  try {
+    // Check cache in KVS
+    const cached = await kvs.get(cacheKey);
+    if (cached && cached.fetchedAt && Date.now() - cached.fetchedAt < ttlSeconds * 1000) {
+      console.log(`Cache hit for group ${groupName} (${product}).`);
+      return cached.members || [];
+    }
+  } catch (err) {
+    console.warn('Error reading group cache, falling back to API:', err);
+  }
+
+  console.log(`Cache miss or expired for group ${groupName} (${product}). Fetching from API...`);
+  const members = [];
+
+  try {
+    if (product === 'jira') {
+      let startAt = 0;
+      let isLast = false;
+      
+      // Page through Jira group members API (returns up to 50 results at a time)
+      while (!isLast) {
+        const response = await asApp().requestJira(
+          `/rest/api/3/group/member?groupname=${encodeURIComponent(groupName)}&startAt=${startAt}&maxResults=50`
+        );
+        
+        if (response.status === 404) {
+          console.warn(`Jira group ${groupName} not found.`);
+          break;
+        }
+        
+        if (!response.ok) {
+          throw new Error(`Jira API returned status ${response.status}: ${await response.text()}`);
+        }
+        
+        const data = await response.json();
+        if (data.values && Array.isArray(data.values)) {
+          for (const user of data.values) {
+            if (user.accountId) {
+              members.push(user.accountId);
+            }
+          }
+        }
+        
+        isLast = data.isLast !== false;
+        if (!isLast && data.values && data.values.length > 0) {
+          startAt += data.values.length;
+        } else {
+          break;
+        }
+      }
+    } else {
+      // Confluence group members
+      let start = 0;
+      let limit = 200;
+      let hasMore = true;
+
+      while (hasMore) {
+        const response = await asApp().requestConfluence(
+          `/wiki/rest/api/group/${encodeURIComponent(groupName)}/member?start=${start}&limit=${limit}`
+        );
+
+        if (response.status === 404) {
+          console.warn(`Confluence group ${groupName} not found.`);
+          break;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Confluence API returned status ${response.status}: ${await response.text()}`);
+        }
+
+        const data = await response.json();
+        if (data.results && Array.isArray(data.results)) {
+          for (const user of data.results) {
+            if (user.accountId) {
+              members.push(user.accountId);
+            }
+          }
+        }
+
+        hasMore = data.results && data.results.length === limit;
+        if (hasMore) {
+          start += limit;
+        }
+      }
+    }
+
+    // Cache the resolved list in KVS
+    await kvs.set(cacheKey, {
+      members,
+      fetchedAt: Date.now()
+    });
+
+    return members;
+  } catch (error) {
+    console.error(`Failed to fetch members for group ${groupName} via REST API:`, error);
+    // If the REST API fails, return cached members if available (even if expired) as a fallback
+    try {
+      const cached = await kvs.get(cacheKey);
+      if (cached && cached.members) {
+        console.log(`Returning expired cache fallback for group ${groupName}.`);
+        return cached.members;
+      }
+    } catch (e) {}
+    return [];
+  }
+}
+
+/**
+ * Checks a list of involved user account IDs and returns which ones are FINRA regulated.
+ * @param {Array<string>} accountIds 
+ * @param {string} product 'jira' or 'confluence'
+ * @param {object} config 
+ * @returns {Promise<Array<string>>} List of regulated user account IDs found.
+ */
+export async function getRegulatedUsersInvolved(accountIds, product, config) {
+  if (!accountIds || accountIds.length === 0) return [];
+  
+  // Clean nulls and duplicates from input
+  const uniqueIds = Array.from(new Set(accountIds.filter(id => !!id)));
+  if (uniqueIds.length === 0) return [];
+
+  if (config.userSource === 'list') {
+    // Split comma separated list of account IDs, trim whitespace
+    const regulatedList = (config.accountIds || '')
+      .split(',')
+      .map(id => id.trim())
+      .filter(id => id.length > 0);
+
+    return uniqueIds.filter(id => regulatedList.includes(id));
+  } else {
+    // Resolve group members from group name
+    const groupName = config.groupName || 'FINRA-Regulated';
+    const groupMembers = await getGroupMembersCached(groupName, product, config.ttl);
+    return uniqueIds.filter(id => groupMembers.includes(id));
+  }
+}
