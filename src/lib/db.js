@@ -1,4 +1,31 @@
-import sql from '@forge/sql';
+import sql, { migrationRunner } from '@forge/sql';
+
+/**
+ * Define the schema migrations using Forge SQL's migrationRunner.
+ * Since standard database connections do not have DDL privileges (like CREATE TABLE)
+ * at runtime, schema definitions must be enqueued and executed using the migration runner.
+ */
+const migrations = migrationRunner
+  .enqueue('v001_create_audit_logs_table', `
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      event_id VARCHAR(255) PRIMARY KEY,
+      ts BIGINT,
+      product VARCHAR(50),
+      event_type VARCHAR(100),
+      regulated_user_id VARCHAR(255),
+      actor_id VARCHAR(255),
+      object_type VARCHAR(100),
+      object_id VARCHAR(255),
+      container_id VARCHAR(255),
+      detail TEXT
+    )
+  `)
+  .enqueue('v002_create_processed_events_table', `
+    CREATE TABLE IF NOT EXISTS processed_events (
+      event_id VARCHAR(255) PRIMARY KEY,
+      processed_at BIGINT
+    )
+  `);
 
 /**
  * Initializes the database tables if they do not exist.
@@ -10,37 +37,16 @@ export async function initDatabase() {
   if (dbInitialized) return;
 
   try {
-    // Create audit_logs table to store FINRA compliance records
-    await sql.executeRaw(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        event_id VARCHAR(255) PRIMARY KEY,
-        ts BIGINT,
-        product VARCHAR(50),
-        event_type VARCHAR(100),
-        regulated_user_id VARCHAR(255),
-        actor_id VARCHAR(255),
-        object_type VARCHAR(100),
-        object_id VARCHAR(255),
-        container_id VARCHAR(255),
-        detail TEXT
-      )
-    `);
-
-    // Create processed_events table for idempotency / deduplication
-    await sql.executeRaw(`
-      CREATE TABLE IF NOT EXISTS processed_events (
-        event_id VARCHAR(255) PRIMARY KEY,
-        processed_at BIGINT
-      )
-    `);
-
+    // Run enqueued schema migrations using the Forge SQL migration runner
+    await migrations.run();
     dbInitialized = true;
-    console.log('Database initialized successfully.');
+    console.log('Database initialized and migrations applied successfully.');
   } catch (error) {
-    console.error('Failed to initialize database:', error);
+    console.error('Failed to initialize database migrations:', error);
     throw error;
   }
 }
+
 
 /**
  * Checks if an event is a duplicate using the processed_events table.

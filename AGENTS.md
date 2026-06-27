@@ -109,6 +109,7 @@ When writing commit messages, you must account for automated GitHub Actions work
 - Use `fix:` or `ci:` for patches (e.g., fixing bugs, pipeline tweaks).
 - Use `feat:` for minor features.
 - Include `BREAKING CHANGE:` in the description or footer for major versions.
+- All commits MUST be formatted strictly according to the Conventional Commits specification. Do not merge pull requests or push commits that violate this structure.
 
 # Next Steps
 
