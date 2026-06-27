@@ -181,7 +181,7 @@ jobs:
       - name: Checkout Version Tag
         uses: actions/checkout@v4
         with:
-          ref: v${{ needs.versioning.outputs.new_tag }}
+          ref: ${{ needs.versioning.outputs.new_tag }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -282,7 +282,7 @@ jobs:
       - name: Create Release
         uses: ncipollo/release-action@v1
         with:
-          tag: v${{ needs.versioning.outputs.new_tag }}
-          name: Release v${{ needs.versioning.outputs.new_tag }}
+          tag: ${{ needs.versioning.outputs.new_tag }}
+          name: Release ${{ needs.versioning.outputs.new_tag }}
           body: ${{ needs.versioning.outputs.changelog }}
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
