@@ -381,6 +381,54 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* Webhook Configuration Card */}
+        <div className="card" style={{ marginTop: '20px' }}>
+          <h2>Webhook Configuration</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+            Configure automatic forwarding of compliance audit logs in EML email format to an n8n webhook or custom HTTP receiver.
+          </p>
+          
+          <div className="form-group">
+            <label>Webhook Destination Target</label>
+            <select 
+              value={config.webhookTarget || 'disabled'} 
+              onChange={(e) => setConfigState(prev => ({ ...prev, webhookTarget: e.target.value }))}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="test">n8n Test Webhook (Sandbox)</option>
+              <option value="prod">n8n Production Webhook (Active)</option>
+              <option value="custom">Custom Webhook URL</option>
+            </select>
+          </div>
+
+          {config.webhookTarget === 'custom' && (
+            <div className="form-group">
+              <label>Custom Webhook URL</label>
+              <input 
+                type="url" 
+                value={config.customWebhookUrl || ''} 
+                onChange={(e) => setConfigState(prev => ({ ...prev, customWebhookUrl: e.target.value }))}
+                placeholder="https://your-banking-middleware.com/webhook"
+                required
+              />
+              <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                Note: The destination host domain must be whitelisted in the app manifest.yml.
+              </small>
+            </div>
+          )}
+
+          {config.webhookTarget !== 'disabled' && config.webhookTarget !== 'custom' && (
+            <div style={{ marginTop: '8px', padding: '12px', background: '#f4f5f7', borderRadius: '4px', borderLeft: '3px solid var(--accent-color)' }}>
+              <small style={{ fontSize: '12px', color: '#172b4d', fontWeight: '500' }}>
+                Target Endpoint: {config.webhookTarget === 'test' 
+                  ? 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                  : 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                }
+              </small>
+            </div>
+          )}
+        </div>
       </form>
 
       {/* Audit Log list and Export */}
