@@ -54,7 +54,8 @@ function getStableEventId(event) {
     (event.issue && event.issue.id) || '',
     (event.comment && event.comment.id) || '',
     (event.attachment && event.attachment.id) || '',
-    (event.page && event.page.id) || ''
+    (event.page && event.page.id) || '',
+    (event.content && event.content.id) || ''
   ];
   return parts.filter(Boolean).join(':') || `event_${Date.now()}`;
 }
@@ -245,8 +246,11 @@ export async function handleConfluenceEvent(event, context) {
 
   try {
     if (event.eventType.includes('comment')) {
-      const commentId = event.comment?.id;
-      if (!commentId) return;
+      const commentId = event.content?.id;
+      if (!commentId) {
+        console.warn('Confluence comment event has no content ID:', event);
+        return;
+      }
 
       // Re-fetch comment body (v2 API) to get ADF format for mention extraction
       const res = await asApp().requestConfluence(route`/wiki/api/v2/comments/${commentId}?body-format=atlas_doc_format`);
@@ -274,8 +278,11 @@ export async function handleConfluenceEvent(event, context) {
       }
 
     } else if (event.eventType.includes('page')) {
-      const pageId = event.page?.id;
-      if (!pageId) return;
+      const pageId = event.content?.id;
+      if (!pageId) {
+        console.warn('Confluence page event has no content ID:', event);
+        return;
+      }
 
       // Re-fetch page content (v2 API) to parse ADF format for mentions
       const res = await asApp().requestConfluence(route`/wiki/api/v2/pages/${pageId}?body-format=atlas_doc_format`);
@@ -301,8 +308,11 @@ export async function handleConfluenceEvent(event, context) {
     } else if (event.eventType.includes('attachment')) {
       // NOTE: Confluence attachment events provide basic payloads.
       // We implement the best available Confluence attachment event (created/updated) and fetch attachment details.
-      const attachmentId = event.attachment?.id;
-      if (!attachmentId) return;
+      const attachmentId = event.content?.id;
+      if (!attachmentId) {
+        console.warn('Confluence attachment event has no content ID:', event);
+        return;
+      }
 
       const res = await asApp().requestConfluence(route`/wiki/api/v2/attachments/${attachmentId}`);
       if (!res.ok) throw new Error(`Failed to fetch Confluence attachment: ${res.status}`);

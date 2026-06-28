@@ -20,8 +20,7 @@ modules:
         - avi:confluence:created:attachment
         - avi:confluence:updated:attachment
       filter:
-        expression: "event.comment != null || event.page != null || event.attachment !=
-          null"
+        expression: "event.content != null"
   scheduledTrigger:
     - key: reaction-poller
       function: pollReactions
