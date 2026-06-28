@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@forge/bridge';
 import PacManGame from './components/PacManGame';
-import GalagaGame from './components/GalagaGame';
+import DoomyGame from './components/DoomyGame';
 
 export default function App() {
   const [config, setConfigState] = useState(null);
@@ -10,7 +10,7 @@ export default function App() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message: string }
   
-  // Active Game State ('pacman' | 'galaga' | null)
+  // Active Game State ('pacman' | 'doomy' | null)
   const [activeGame, setActiveGame] = useState(null);
   
   // Date filters for audit log queries
@@ -198,10 +198,10 @@ export default function App() {
           </button>
           <button 
             className="btn btn-secondary" 
-            onClick={() => setActiveGame(activeGame === 'galaga' ? null : 'galaga')}
-            style={activeGame === 'galaga' ? { background: '#253858', color: '#fff' } : {}}
+            onClick={() => setActiveGame(activeGame === 'doomy' ? null : 'doomy')}
+            style={activeGame === 'doomy' ? { background: '#ef4444', color: '#fff', borderColor: '#ef4444' } : {}}
           >
-            {activeGame === 'galaga' ? 'Hide Game' : '🚀 Play Galaga'}
+            {activeGame === 'doomy' ? 'Hide Game' : '🔥 Play Doomy'}
           </button>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
@@ -209,7 +209,7 @@ export default function App() {
 
       {activeGame && (
         <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'center' }}>
-          {activeGame === 'pacman' ? <PacManGame /> : <GalagaGame />}
+          {activeGame === 'pacman' ? <PacManGame /> : <DoomyGame />}
         </div>
       )}
 

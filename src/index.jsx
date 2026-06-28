@@ -32,7 +32,9 @@ resolver.define('setConfig', async ({ payload }) => {
 
 resolver.define('getLogs', async ({ payload }) => {
   const { startTs, endTs } = payload || {};
-  return await getAuditLogs(startTs, endTs);
+  const logs = await getAuditLogs(startTs, endTs);
+  console.log(`[getLogs] Fetched ${logs.length} logs from DB.`);
+  return logs;
 });
 
 export const resolve = resolver.getDefinitions();
