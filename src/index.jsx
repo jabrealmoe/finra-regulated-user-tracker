@@ -173,7 +173,8 @@ export async function handleJiraEvent(event, context) {
     }
 
     // 4. Run isRegulatedInvolved predicate
-    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'jira', config);
+    const eventTs = event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now();
+    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'jira', config, eventTs);
     
     // 5. If true, write one idempotent audit row
     if (regulatedInvolved.length > 0) {
@@ -183,7 +184,7 @@ export async function handleJiraEvent(event, context) {
       for (const regUserId of regulatedInvolved) {
         const logData = {
           eventId: `${eventId}:${regUserId}`,
-          ts: event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now(),
+          ts: eventTs,
           product: 'jira',
           eventType: event.eventType,
           regulatedUserId: regUserId,
@@ -194,7 +195,8 @@ export async function handleJiraEvent(event, context) {
           detail: {
             ...detail,
             involvedCount: regulatedInvolved.length
-          }
+          },
+          isRegulated: true
         };
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
@@ -338,8 +340,9 @@ export async function handleConfluenceEvent(event, context) {
     }
 
     // 4. Run isRegulatedInvolved predicate
-    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'confluence', config);
-
+    const eventTs = event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now();
+    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'confluence', config, eventTs);
+ 
     // 5. If true, write one idempotent audit row
     if (regulatedInvolved.length > 0) {
       console.log(`FINRA Regulated users involved in Confluence event: ${regulatedInvolved.join(', ')}`);
@@ -347,7 +350,7 @@ export async function handleConfluenceEvent(event, context) {
       for (const regUserId of regulatedInvolved) {
         const logData = {
           eventId: `${eventId}:${regUserId}`,
-          ts: event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now(),
+          ts: eventTs,
           product: 'confluence',
           eventType: event.eventType,
           regulatedUserId: regUserId,
@@ -358,7 +361,8 @@ export async function handleConfluenceEvent(event, context) {
           detail: {
             ...detail,
             involvedCount: regulatedInvolved.length
-          }
+          },
+          isRegulated: true
         };
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);

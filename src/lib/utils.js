@@ -1,5 +1,6 @@
 import { asApp, route } from '@forge/api';
 import { kvs } from '@forge/kvs';
+import { syncRegulatedUserStatus, wasUserRegulatedAt } from './db';
 
 const CONFIG_KEY = 'finra_config';
 const CACHE_PREFIX = 'group_cache_';
@@ -211,45 +212,54 @@ async function isUserInGroupConfluence(accountId, groupName, ttl) {
   }
 }
 
-/**
- * Checks a list of involved user account IDs and returns which ones are FINRA regulated.
- * @param {Array<string>} accountIds 
- * @param {string} product 'jira' or 'confluence'
- * @param {object} config 
- * @returns {Promise<Array<string>>} List of regulated user account IDs found.
- */
-export async function getRegulatedUsersInvolved(accountIds, product, config) {
+export async function getRegulatedUsersInvolved(accountIds, product, config, eventTs) {
   if (!accountIds || accountIds.length === 0) return [];
   
   // Clean nulls and duplicates from input
   const uniqueIds = Array.from(new Set(accountIds.filter(id => !!id)));
   if (uniqueIds.length === 0) return [];
 
+  const groupName = config.groupName || 'FINRA-Regulated';
+  const source = config.userSource === 'list' ? 'list' : `group:${groupName}`;
+  const queryTs = eventTs || Date.now();
+
+  let currentRegulated = [];
+
   if (config.userSource === 'list') {
-    // Split comma separated list of account IDs, trim whitespace
-    const regulatedList = (config.accountIds || '')
+    currentRegulated = (config.accountIds || '')
       .split(',')
       .map(id => id.trim())
       .filter(id => id.length > 0);
-
-    return uniqueIds.filter(id => regulatedList.includes(id));
   } else {
     // Resolve group members from group name
-    const groupName = config.groupName || 'FINRA-Regulated';
     if (product === 'confluence') {
-      const results = [];
       for (const id of uniqueIds) {
         const inGroup = await isUserInGroupConfluence(id, groupName, config.ttl);
         if (inGroup) {
-          results.push(id);
+          currentRegulated.push(id);
         }
       }
-      return results;
     } else {
-      const groupMembers = await getGroupMembersCached(groupName, product, config.ttl);
-      return uniqueIds.filter(id => groupMembers.includes(id));
+      currentRegulated = await getGroupMembersCached(groupName, product, config.ttl);
     }
   }
+
+  // Sync checked users' current status to regulated_user_history
+  for (const id of uniqueIds) {
+    const isReg = currentRegulated.includes(id);
+    await syncRegulatedUserStatus(id, isReg, source);
+  }
+
+  // Resolve point-in-time status from local history table
+  const results = [];
+  for (const id of uniqueIds) {
+    const isReg = await wasUserRegulatedAt(id, queryTs);
+    if (isReg) {
+      results.push(id);
+    }
+  }
+
+  return results;
 }
 
 /**

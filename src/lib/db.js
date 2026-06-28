@@ -25,6 +25,18 @@ const migrations = migrationRunner
       event_id VARCHAR(255) PRIMARY KEY,
       processed_at BIGINT
     )
+  `)
+  .enqueue('v003_create_regulated_user_history', `
+    CREATE TABLE IF NOT EXISTS regulated_user_history (
+      account_id VARCHAR(255) NOT NULL,
+      regulated_from BIGINT NOT NULL,
+      regulated_to BIGINT,
+      source VARCHAR(100) NOT NULL,
+      PRIMARY KEY (account_id, regulated_from)
+    )
+  `)
+  .enqueue('v004_add_is_regulated_column', `
+    ALTER TABLE audit_logs ADD COLUMN is_regulated INT DEFAULT 1
   `);
 
 /**
@@ -104,7 +116,8 @@ export async function insertAuditLog({
   objectType,
   objectId,
   containerId,
-  detail
+  detail,
+  isRegulated = 1
 }) {
   await initDatabase();
 
@@ -114,8 +127,8 @@ export async function insertAuditLog({
     await sql
       .prepare(`
         INSERT INTO audit_logs (
-          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail, is_regulated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bindParams(
         eventId,
@@ -127,10 +140,11 @@ export async function insertAuditLog({
         objectType,
         objectId,
         containerId,
-        detailStr
+        detailStr,
+        isRegulated ? 1 : 0
       )
       .execute();
-    console.log(`Audit log inserted for event: ${eventId}`);
+    console.log(`Audit log inserted for event: ${eventId} (is_regulated: ${isRegulated})`);
   } catch (error) {
     if (error.message && (error.message.includes('Duplicate entry') || error.message.includes('1062'))) {
       console.log(`Audit log row for event ${eventId} already exists (duplicate insert ignored).`);
@@ -177,5 +191,82 @@ export async function getAuditLogs(startTs, endTs) {
   } catch (error) {
     console.error('Failed to retrieve audit logs:', error);
     throw error;
+  }
+}
+
+/**
+ * Synchronizes the point-in-time regulated status of a user in the history table.
+ * @param {string} accountId 
+ * @param {boolean} isCurrentlyRegulated 
+ * @param {string} source 
+ */
+export async function syncRegulatedUserStatus(accountId, isCurrentlyRegulated, source) {
+  await initDatabase();
+  const now = Date.now();
+
+  try {
+    const result = await sql
+      .prepare(`SELECT regulated_from, regulated_to FROM regulated_user_history WHERE account_id = ? ORDER BY regulated_from DESC LIMIT 1`)
+      .bindParams(accountId)
+      .execute();
+
+    const lastRecord = result.rows && result.rows[0];
+
+    if (!lastRecord) {
+      if (isCurrentlyRegulated) {
+        await sql
+          .prepare(`INSERT INTO regulated_user_history (account_id, regulated_from, regulated_to, source) VALUES (?, ?, NULL, ?)`)
+          .bindParams(accountId, now, source)
+          .execute();
+        console.log(`History initialized: ${accountId} is now regulated.`);
+      }
+    } else {
+      const fromVal = Number(lastRecord.regulated_from);
+      const toVal = lastRecord.regulated_to ? Number(lastRecord.regulated_to) : null;
+
+      if (isCurrentlyRegulated && toVal !== null) {
+        // Was regulated, stopped, and now regulated again
+        await sql
+          .prepare(`INSERT INTO regulated_user_history (account_id, regulated_from, regulated_to, source) VALUES (?, ?, NULL, ?)`)
+          .bindParams(accountId, now, source)
+          .execute();
+        console.log(`History updated: ${accountId} re-entered regulated status.`);
+      } else if (!isCurrentlyRegulated && toVal === null) {
+        // Was regulated, now deregulared
+        await sql
+          .prepare(`UPDATE regulated_user_history SET regulated_to = ? WHERE account_id = ? AND regulated_from = ?`)
+          .bindParams(now, accountId, fromVal)
+          .execute();
+        console.log(`History updated: ${accountId} left regulated status.`);
+      }
+    }
+  } catch (error) {
+    console.error(`Failed to sync history status for user ${accountId}:`, error);
+  }
+}
+
+/**
+ * Determines if a user was regulated at a specific timestamp.
+ * @param {string} accountId 
+ * @param {number} ts 
+ * @returns {Promise<boolean>}
+ */
+export async function wasUserRegulatedAt(accountId, ts) {
+  await initDatabase();
+
+  try {
+    const result = await sql
+      .prepare(`
+        SELECT 1 FROM regulated_user_history 
+        WHERE account_id = ? AND regulated_from <= ? AND (regulated_to IS NULL OR regulated_to >= ?)
+        LIMIT 1
+      `)
+      .bindParams(accountId, ts, ts)
+      .execute();
+
+    return !!(result.rows && result.rows.length > 0);
+  } catch (error) {
+    console.error(`Error checking point-in-time regulated status for user ${accountId} at ${ts}:`, error);
+    return false;
   }
 }
