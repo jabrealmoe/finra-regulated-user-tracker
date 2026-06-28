@@ -1,4 +1,4 @@
-import { asApp, route } from '@forge/api';
+import { asApp, route, webTrigger } from '@forge/api';
 import { kvs } from '@forge/kvs';
 import { syncRegulatedUserStatus, wasUserRegulatedAt } from './db';
 
@@ -13,6 +13,16 @@ const DEFAULT_CONFIG = {
   ttl: 300, // cache TTL in seconds (default 5 mins)
   webhookTarget: 'disabled', // 'disabled', 'test', 'prod', 'custom'
   customWebhookUrl: '',
+  n8nEnrichment: false, // toggled off by default
+  lexiconRules: [
+    { pattern: 'confidential', score: 40, flag: 'CONFIDENTIAL_KEYWORD' },
+    { pattern: 'insider', score: 80, flag: 'POSSIBLE_INSIDER' },
+    { pattern: 'leak', score: 60, flag: 'LEAK_KEYWORD' },
+    { pattern: 'don\'t share', score: 50, flag: 'RESTRICTED_SHARING' },
+    { pattern: 'private key', score: 70, flag: 'CREDENTIAL_LEAK' },
+    { pattern: 'acquisition', score: 50, flag: 'M_A_DISCUSSION' },
+    { pattern: 'undisclosed', score: 40, flag: 'UNDISCLOSED_INFO' }
+  ],
   categories: {
     jira: {
       mentions: true,
@@ -342,4 +352,121 @@ export async function sendWebhookIfConfigured(logData) {
   } catch (error) {
     console.error('Failed to send compliance webhook:', error);
   }
+}
+
+/**
+ * Evaluates text content against lexicon rules.
+ * @param {string} text 
+ * @param {Array} rules 
+ * @returns {object} { score: number, flag: string | null }
+ */
+export function evaluateLexicon(text, rules) {
+  if (!text || !rules || !Array.isArray(rules)) {
+    return { score: 0, flag: null };
+  }
+
+  let maxScore = 0;
+  let matchedFlag = null;
+
+  for (const rule of rules) {
+    try {
+      const regex = new RegExp(rule.pattern, 'i');
+      if (regex.test(text)) {
+        if (rule.score > maxScore) {
+          maxScore = rule.score;
+          matchedFlag = rule.flag;
+        }
+      }
+    } catch (e) {
+      console.warn(`Invalid regex pattern in lexicon rule: ${rule.pattern}`, e);
+    }
+  }
+
+  return { score: maxScore, flag: matchedFlag };
+}
+
+/**
+ * Dispatches the event payload asynchronously to the external n8n scoring engine.
+ * Includes a signed shared secret header and dynamically resolved callback URL.
+ * @param {object} logData 
+ */
+export async function dispatchN8nEnrichment(logData) {
+  try {
+    const config = await getConfig();
+    if (!config.n8nEnrichment) {
+      console.log('n8n enrichment is disabled in config. Skipping dispatch.');
+      return;
+    }
+
+    let url = '';
+    if (config.webhookTarget === 'test') {
+      url = 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5';
+    } else if (config.webhookTarget === 'prod') {
+      url = 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5';
+    } else if (config.webhookTarget === 'custom') {
+      url = config.customWebhookUrl;
+    }
+
+    if (!url) {
+      console.warn('n8n enrichment target URL is empty.');
+      return;
+    }
+
+    // Resolve callback URL dynamically
+    const callbackUrl = await webTrigger.getUrl('n8n-callback-trigger');
+    const secret = process.env.N8N_SHARED_SECRET || 'fallback-secret';
+
+    const payload = {
+      event: logData,
+      callbackUrl: callbackUrl
+    };
+
+    console.log(`Dispatching asynchronous risk scoring to n8n: ${url}`);
+    
+    // We launch fetch asynchronously (non-blocking)
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${secret}`
+      },
+      body: JSON.stringify(payload)
+    }).then(async (res) => {
+      if (!res.ok) {
+        console.error(`n8n enrichment dispatch failed: status ${res.status}`);
+      } else {
+        console.log('n8n enrichment dispatched successfully.');
+      }
+    }).catch((err) => {
+      console.error('Error during n8n enrichment dispatch:', err);
+    });
+
+  } catch (error) {
+    console.error('Failed to initiate n8n enrichment dispatch:', error);
+  }
+}
+
+/**
+ * Extracts plain text from an Atlassian Document Format (ADF) object.
+ * @param {object} adf 
+ * @returns {string} Plain text content
+ */
+export function extractTextFromAdf(adf) {
+  if (!adf) return '';
+  if (typeof adf === 'string') return adf;
+  
+  let text = '';
+  function walk(node) {
+    if (!node) return;
+    if (node.type === 'text' && node.text) {
+      text += ' ' + node.text;
+    }
+    if (node.content && Array.isArray(node.content)) {
+      for (const child of node.content) {
+        walk(child);
+      }
+    }
+  }
+  walk(adf);
+  return text.trim();
 }

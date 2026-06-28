@@ -43,6 +43,9 @@ modules:
   sql:
     - key: main
       engine: mysql
+  webtrigger:
+    - key: n8n-callback-trigger
+      function: handleN8nCallback
   function:
     - key: handleJiraEvent
       handler: index.handleJiraEvent
@@ -52,6 +55,8 @@ modules:
       handler: index.pollReactions
     - key: generateDailyDigest
       handler: index.generateDailyDigest
+    - key: handleN8nCallback
+      handler: index.handleN8nCallback
     - key: resolver
       handler: index.resolve
 resources:

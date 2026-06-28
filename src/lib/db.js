@@ -60,6 +60,21 @@ const migrations = migrationRunner
       notes TEXT,
       chain_hash VARCHAR(64) NOT NULL
     )
+  `)
+  .enqueue('v008_create_risk_scores_table', `
+    CREATE TABLE IF NOT EXISTS risk_scores (
+      score_id VARCHAR(255) PRIMARY KEY,
+      event_id VARCHAR(255) NOT NULL,
+      score INT NOT NULL,
+      reasons TEXT,
+      engine_version VARCHAR(50) NOT NULL,
+      ruleset_or_model_version VARCHAR(50) NOT NULL,
+      scored_at BIGINT NOT NULL,
+      chain_hash VARCHAR(64) NOT NULL
+    )
+  `)
+  .enqueue('v009_add_lexicon_columns_to_audit_logs', `
+    ALTER TABLE audit_logs ADD COLUMN lexicon_score INT DEFAULT 0, ADD COLUMN lexicon_flag VARCHAR(255)
   `);
 
 /**
@@ -163,7 +178,9 @@ export async function insertAuditLog({
   objectId,
   containerId,
   detail,
-  isRegulated = 1
+  isRegulated = 1,
+  lexiconScore = 0,
+  lexiconFlag = null
 }) {
   await initDatabase();
 
@@ -191,7 +208,9 @@ export async function insertAuditLog({
       container_id: containerId,
       detail: detailStr,
       is_regulated: isRegulated ? 1 : 0,
-      previous_event_id: previousEventId
+      previous_event_id: previousEventId,
+      lexicon_score: Number(lexiconScore),
+      lexicon_flag: lexiconFlag || ''
     };
 
     const canonicalStr = canonicalizeRecord(recordPayload);
@@ -200,8 +219,8 @@ export async function insertAuditLog({
     await sql
       .prepare(`
         INSERT INTO audit_logs (
-          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail, is_regulated, chain_hash, previous_event_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail, is_regulated, chain_hash, previous_event_id, lexicon_score, lexicon_flag
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bindParams(
         eventId,
@@ -216,10 +235,12 @@ export async function insertAuditLog({
         detailStr,
         recordPayload.is_regulated,
         chainHash,
-        previousEventId
+        previousEventId,
+        recordPayload.lexicon_score,
+        recordPayload.lexicon_flag
       )
       .execute();
-    console.log(`Audit log inserted for event: ${eventId} (is_regulated: ${isRegulated}, chain_hash: ${chainHash})`);
+    console.log(`Audit log inserted for event: ${eventId} (is_regulated: ${isRegulated}, lexicon_score: ${lexiconScore}, chain_hash: ${chainHash})`);
   } catch (error) {
     if (error.message && (error.message.includes('Duplicate entry') || error.message.includes('1062'))) {
       console.log(`Audit log row for event ${eventId} already exists (duplicate insert ignored).`);
@@ -261,7 +282,9 @@ export async function verifyAuditChain() {
         container_id: log.container_id,
         detail: log.detail,
         is_regulated: Number(log.is_regulated),
-        previous_event_id: log.previous_event_id || 'GENESIS'
+        previous_event_id: log.previous_event_id || 'GENESIS',
+        lexicon_score: log.lexicon_score !== null && log.lexicon_score !== undefined ? Number(log.lexicon_score) : 0,
+        lexicon_flag: log.lexicon_flag || ''
       };
 
       const canonicalStr = canonicalizeRecord(recordPayload);
@@ -282,18 +305,14 @@ export async function verifyAuditChain() {
   }
 }
 
-/**
- * Retrieves audit logs for a given date range, joined with their latest compliance review status.
- * @param {number} startTs 
- * @param {number} endTs 
- * @returns {Promise<Array>}
- */
 export async function getAuditLogs(startTs, endTs) {
   await initDatabase();
 
   try {
     let query = `
-      SELECT a.*, r.status AS review_status, r.reviewer_id, r.review_ts, r.notes, r.chain_hash AS review_hash
+      SELECT a.*, 
+             r.status AS review_status, r.reviewer_id, r.review_ts, r.notes, r.chain_hash AS review_hash,
+             s.score AS deep_score, s.reasons AS deep_reasons, s.engine_version, s.ruleset_or_model_version, s.scored_at AS deep_scored_at, s.chain_hash AS score_hash
       FROM audit_logs a
       LEFT JOIN (
         SELECT r1.* FROM compliance_reviews r1
@@ -301,6 +320,12 @@ export async function getAuditLogs(startTs, endTs) {
           SELECT event_id, MAX(review_ts) as max_ts FROM compliance_reviews GROUP BY event_id
         ) r2 ON r1.event_id = r2.event_id AND r1.review_ts = r2.max_ts
       ) r ON a.event_id = r.event_id
+      LEFT JOIN (
+        SELECT s1.* FROM risk_scores s1
+        INNER JOIN (
+          SELECT event_id, MAX(scored_at) as max_sat FROM risk_scores GROUP BY event_id
+        ) s2 ON s1.event_id = s2.event_id AND s1.scored_at = s2.max_sat
+      ) s ON a.event_id = s.event_id
     `;
     const params = [];
 
@@ -385,6 +410,69 @@ export async function insertComplianceReview({
     return { success: true, reviewId, chainHash };
   } catch (error) {
     console.error(`Failed to insert compliance review for event ${eventId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Inserts a new risk score audit record, linked by its own hash chain.
+ * @param {object} params
+ * @returns {Promise<object>} Status report
+ */
+export async function insertRiskScore({
+  eventId,
+  score,
+  reasons,
+  engineVersion,
+  rulesetOrModelVersion,
+  scoredAt
+}) {
+  await initDatabase();
+  const scoreId = `score_${eventId}_${Date.now()}`;
+  const reasonsStr = Array.isArray(reasons) ? JSON.stringify(reasons) : (reasons || '');
+
+  try {
+    // Fetch last risk score to link the chain
+    const lastScoreResult = await sql
+      .prepare(`SELECT score_id, chain_hash FROM risk_scores ORDER BY scored_at DESC, score_id DESC LIMIT 1`)
+      .execute();
+
+    const lastScore = lastScoreResult.rows && lastScoreResult.rows[0];
+    const prevHash = lastScore ? (lastScore.chain_hash || '0'.repeat(64)) : '0'.repeat(64);
+
+    const recordPayload = {
+      score_id: scoreId,
+      event_id: eventId,
+      score: Number(score),
+      reasons: reasonsStr,
+      engine_version: engineVersion,
+      ruleset_or_model_version: rulesetOrModelVersion,
+      scored_at: Number(scoredAt || Date.now())
+    };
+
+    const canonicalStr = canonicalizeRecord(recordPayload);
+    const chainHash = computeHash(canonicalStr + prevHash);
+
+    await sql
+      .prepare(`
+        INSERT INTO risk_scores (score_id, event_id, score, reasons, engine_version, ruleset_or_model_version, scored_at, chain_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .bindParams(
+        scoreId,
+        eventId,
+        recordPayload.score,
+        recordPayload.reasons,
+        recordPayload.engine_version,
+        recordPayload.ruleset_or_model_version,
+        recordPayload.scored_at,
+        chainHash
+      )
+      .execute();
+    console.log(`Risk score logged: ${scoreId} (score: ${score}, chain_hash: ${chainHash})`);
+    return { success: true, scoreId, chainHash };
+  } catch (error) {
+    console.error(`Failed to insert risk score for event ${eventId}:`, error);
     throw error;
   }
 }

@@ -4,12 +4,16 @@ import {
   getConfig, 
   getRegulatedUsersInvolved, 
   walkAdfForMentions,
-  sendWebhookIfConfigured
+  sendWebhookIfConfigured,
+  evaluateLexicon,
+  dispatchN8nEnrichment,
+  extractTextFromAdf
 } from './lib/utils';
 import { 
   insertAuditLog, 
   isDuplicateEvent, 
-  getAuditLogs 
+  getAuditLogs,
+  insertRiskScore
 } from './lib/db';
 
 import sql from '@forge/sql';
@@ -211,6 +215,20 @@ export async function handleJiraEvent(event, context) {
     if (regulatedInvolved.length > 0) {
       console.log(`FINRA Regulated users involved in Jira event: ${regulatedInvolved.join(', ')}`);
       
+      // Determine text content to scan against lexicon rules
+      let textToScan = '';
+      if (event.eventType === 'avi:jira:commented:issue' && typeof bodyAdf !== 'undefined') {
+        textToScan = extractTextFromAdf(bodyAdf);
+      } else if (event.eventType === 'avi:jira:mentioned:issue' && typeof descriptionAdf !== 'undefined') {
+        textToScan = (detail.summary || '') + ' ' + extractTextFromAdf(descriptionAdf);
+      } else if (event.eventType === 'avi:jira:created:attachment' && typeof attachmentData !== 'undefined') {
+        textToScan = attachmentData.filename || '';
+      }
+
+      const lexiconResult = evaluateLexicon(textToScan, config.lexiconRules || []);
+      const lexiconScore = lexiconResult.score;
+      const lexiconFlag = lexiconResult.flag;
+
       // Log for each unique regulated user involved (usually 1, but handles multiple)
       for (const regUserId of regulatedInvolved) {
         const logData = {
@@ -227,10 +245,13 @@ export async function handleJiraEvent(event, context) {
             ...detail,
             involvedCount: regulatedInvolved.length
           },
-          isRegulated: true
+          isRegulated: true,
+          lexiconScore,
+          lexiconFlag
         };
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
+        await dispatchN8nEnrichment(logData);
       }
     } else {
       console.log(`No FINRA regulated users involved in Jira event: ${event.eventType}. Skipping database insert and webhook.`);
@@ -378,6 +399,28 @@ export async function handleConfluenceEvent(event, context) {
     if (regulatedInvolved.length > 0) {
       console.log(`FINRA Regulated users involved in Confluence event: ${regulatedInvolved.join(', ')}`);
       
+      // Determine text content to scan against lexicon rules
+      let textToScan = '';
+      if (event.eventType.includes('comment') && typeof adfStr !== 'undefined' && adfStr) {
+        try {
+          textToScan = extractTextFromAdf(JSON.parse(adfStr));
+        } catch (e) {}
+      } else if (event.eventType.includes('page') && typeof pageData !== 'undefined') {
+        let pageBodyText = '';
+        if (typeof adfStr !== 'undefined' && adfStr) {
+          try {
+            pageBodyText = extractTextFromAdf(JSON.parse(adfStr));
+          } catch (e) {}
+        }
+        textToScan = (pageData.title || '') + ' ' + pageBodyText;
+      } else if (event.eventType.includes('attachment') && typeof attData !== 'undefined') {
+        textToScan = attData.title || '';
+      }
+
+      const lexiconResult = evaluateLexicon(textToScan, config.lexiconRules || []);
+      const lexiconScore = lexiconResult.score;
+      const lexiconFlag = lexiconResult.flag;
+
       for (const regUserId of regulatedInvolved) {
         const logData = {
           eventId: `${eventId}:${regUserId}`,
@@ -393,10 +436,13 @@ export async function handleConfluenceEvent(event, context) {
             ...detail,
             involvedCount: regulatedInvolved.length
           },
-          isRegulated: true
+          isRegulated: true,
+          lexiconScore,
+          lexiconFlag
         };
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
+        await dispatchN8nEnrichment(logData);
       }
     } else {
       console.log(`No FINRA regulated users involved in Confluence event: ${event.eventType}. Skipping database insert and webhook.`);
@@ -562,5 +608,60 @@ export async function generateDailyDigest(event, context) {
     console.log(`Daily digest anchored successfully for ${todayStr}. Verified: ${verification.verified}, Head Hash: ${digestRecord.hash_chain_head}`);
   } catch (error) {
     console.error('Failed to run daily digest anchoring:', error);
+  }
+}
+
+/**
+ * Secure webtrigger endpoint callback for n8n.
+ * Authenticates incoming POST requests and appends a chained deep risk score.
+ */
+export async function handleN8nCallback(req) {
+  console.log('Received callback webtrigger from n8n');
+  try {
+    const signatureHeader = req.headers['authorization'] || '';
+    const secret = process.env.N8N_SHARED_SECRET || 'fallback-secret';
+    
+    if (!signatureHeader.includes(secret)) {
+      console.warn('Unauthorized webtrigger call. Secret signature mismatch.');
+      return {
+        status: 401,
+        body: JSON.stringify({ error: 'Unauthorized. Secret mismatch.' }),
+        headers: { 'Content-Type': ['application/json'] }
+      };
+    }
+
+    const payload = JSON.parse(req.body);
+    const { eventId, score, reasons, engine_version, ruleset_or_model_version, scored_at } = payload;
+
+    if (!eventId || score === undefined) {
+      return {
+        status: 400,
+        body: JSON.stringify({ error: 'Bad Request. Missing required eventId or score.' }),
+        headers: { 'Content-Type': ['application/json'] }
+      };
+    }
+
+    await insertRiskScore({
+      eventId,
+      score,
+      reasons,
+      engineVersion: engine_version || 'n8n-deep-v1',
+      rulesetOrModelVersion: ruleset_or_model_version || 'finra-llm-classifier-v2.1',
+      scoredAt: scored_at || Date.now()
+    });
+
+    console.log(`Successfully stored deep score for event ${eventId}: ${score}`);
+    return {
+      status: 200,
+      body: JSON.stringify({ success: true }),
+      headers: { 'Content-Type': ['application/json'] }
+    };
+  } catch (error) {
+    console.error('Failed to handle n8n callback:', error);
+    return {
+      status: 500,
+      body: JSON.stringify({ error: error.message }),
+      headers: { 'Content-Type': ['application/json'] }
+    };
   }
 }

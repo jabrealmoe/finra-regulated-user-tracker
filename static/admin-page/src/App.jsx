@@ -31,6 +31,7 @@ export default function App() {
   const [reviewNotes, setReviewNotes] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'pending' | 'reviewed'
+  const [sortBy, setSortBy] = useState('date_desc'); // 'date_desc' | 'risk_desc'
 
   // Load configuration on mount
   useEffect(() => {
@@ -229,6 +230,17 @@ export default function App() {
       (log.event_type && log.event_type.toLowerCase().includes(query)) ||
       (log.detail && log.detail.toLowerCase().includes(query))
     );
+  });
+
+  // Sort logs based on selected sorting criteria (Date vs Risk Score)
+  const sortedLogs = [...filteredLogs].sort((a, b) => {
+    if (sortBy === 'risk_desc') {
+      const scoreA = a.deep_score !== null && a.deep_score !== undefined ? Number(a.deep_score) : (Number(a.lexicon_score) || 0);
+      const scoreB = b.deep_score !== null && b.deep_score !== undefined ? Number(b.deep_score) : (Number(b.lexicon_score) || 0);
+      return scoreB - scoreA;
+    } else {
+      return Number(b.ts) - Number(a.ts);
+    }
   });
 
   if (loadingConfig) {
@@ -514,6 +526,49 @@ export default function App() {
               </small>
             </div>
           )}
+
+          <div className="toggle-row" style={{ marginTop: '20px' }}>
+            <div className="toggle-label">
+              <span className="toggle-title">n8n Deep Risk Enrichment</span>
+              <span className="toggle-desc">Enables deep risk scoring via external n8n workflow</span>
+            </div>
+            <label className="switch">
+              <input 
+                type="checkbox" 
+                checked={config.n8nEnrichment || false} 
+                onChange={(e) => setConfigState(prev => ({ ...prev, n8nEnrichment: e.target.checked }))}
+              />
+              <span className="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        {/* Lexicon Rules Card */}
+        <div className="card" style={{ marginTop: '20px' }}>
+          <h2>Lexicon Rules Engine</h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+            Configure regular expressions to evaluate baseline risk scores deterministically in-Forge. Format: <code>pattern,score,flag</code> (one rule per line).
+          </p>
+          <div className="form-group">
+            <label>Baseline Lexicon Rules</label>
+            <textarea 
+              rows="6"
+              value={config.lexiconRules ? config.lexiconRules.map(r => `${r.pattern},${r.score},${r.flag}`).join('\n') : ''}
+              onChange={(e) => {
+                const lines = e.target.value.split('\n');
+                const rules = lines.map(line => {
+                  const parts = line.split(',');
+                  if (parts.length >= 3) {
+                    return { pattern: parts[0].trim(), score: parseInt(parts[1].trim()) || 0, flag: parts[2].trim() };
+                  }
+                  return null;
+                }).filter(Boolean);
+                setConfigState(prev => ({ ...prev, lexiconRules: rules }));
+              }}
+              placeholder="e.g. insider,80,POSSIBLE_INSIDER"
+              style={{ resize: 'vertical', fontFamily: 'monospace' }}
+            />
+          </div>
         </div>
       </form>
 
@@ -605,7 +660,7 @@ export default function App() {
           </div>
         </div>
 
-        <form onSubmit={handleFilterLogs} className="logs-filter-bar">
+        <form onSubmit={handleFilterLogs} className="logs-filter-bar" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label>Start Date</label>
             <input 
@@ -624,8 +679,17 @@ export default function App() {
               onChange={(e) => setEndDate(e.target.value)} 
             />
           </div>
-          <button type="submit" className="btn btn-primary">Filter</button>
-          <button type="button" className="btn btn-secondary" onClick={handleResetFilters}>Clear</button>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label>Sort Triage By</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#1e293b', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+              <option value="date_desc">Newest First</option>
+              <option value="risk_desc">⚠️ Highest Risk First</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button type="submit" className="btn btn-primary">Filter</button>
+            <button type="button" className="btn btn-secondary" onClick={handleResetFilters}>Clear</button>
+          </div>
         </form>
 
         <div className="form-group" style={{ marginTop: '16px' }}>
@@ -694,7 +758,7 @@ export default function App() {
             <div className="loading-spinner"></div>
             Loading audit logs...
           </div>
-        ) : filteredLogs.length === 0 ? (
+        ) : sortedLogs.length === 0 ? (
           <div className="empty-state">
             No audit logs found. Try adjusting filters or starting actions in Jira/Confluence.
           </div>
@@ -707,15 +771,15 @@ export default function App() {
                   <th>Product</th>
                   <th>Event Type</th>
                   <th>Regulated User</th>
-                  <th>Actor</th>
                   <th>Object Type (ID)</th>
                   <th>Details</th>
+                  <th>Risk Score</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredLogs.map((log) => (
+                {sortedLogs.map((log) => (
                   <tr key={log.event_id}>
                     <td>{new Date(Number(log.ts)).toLocaleString()}</td>
                     <td>
@@ -727,14 +791,22 @@ export default function App() {
                     <td title={log.regulated_user_id}>
                       {log.regulated_user_id.slice(0, 15)}...
                     </td>
-                    <td title={log.actor_id}>
-                      {log.actor_id.slice(0, 15)}...
-                    </td>
                     <td>
                       {log.object_type} ({log.object_id.slice(0, 8)})
                     </td>
                     <td title={log.detail}>
                       {log.detail}
+                    </td>
+                    <td>
+                      {log.deep_score !== null && log.deep_score !== undefined ? (
+                        <span className="badge" style={{ background: log.deep_score >= 70 ? 'rgba(239,68,68,0.2)' : log.deep_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.deep_score >= 70 ? '#ef4444' : log.deep_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.deep_reasons}>
+                          🔥 {log.deep_score} (n8n)
+                        </span>
+                      ) : (
+                        <span className="badge" style={{ background: log.lexicon_score >= 70 ? 'rgba(239,68,68,0.2)' : log.lexicon_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.lexicon_score >= 70 ? '#ef4444' : log.lexicon_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.lexicon_flag}>
+                          🏷️ {log.lexicon_score || 0} (Lexicon)
+                        </span>
+                      )}
                     </td>
                     <td>
                       <span 

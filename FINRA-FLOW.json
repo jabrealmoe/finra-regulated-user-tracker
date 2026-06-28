@@ -1,0 +1,66 @@
+{
+  "name": "FINRA-FLOW",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "9fd48593-a44d-4b28-bfb5-143c1aa99af5",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9d9ee349-df61-48c0-a663-afaed9e2e39e",
+      "name": "Webhook",
+      "webhookId": "9fd48593-a44d-4b28-bfb5-143c1aa99af5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.body.callbackUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"eventId\": \"{{ $json.body.event.eventId }}\",\n  \"score\": 85,\n  \"reasons\": [\"semantic similarity to known leak patterns\", \"deep model flag\"],\n  \"engine_version\": \"n8n-deep-v1\",\n  \"ruleset_or_model_version\": \"finra-llm-classifier-v2.1\",\n  \"scored_at\": {{ Date.now() }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        250,
+        0
+      ],
+      "id": "e4922624-6a1d-4bc3-9271-e4597f657ef8",
+      "name": "HTTP Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "7c517c59-0014-481a-9908-c8c318191281",
+  "meta": {
+    "instanceId": "e55fc74b8ed7503a89c96c51781830c0e8ef1e215329957fd97981600c2268cb"
+  },
+  "nodeGroups": [],
+  "id": "UYD1g8IJEKSDLfli",
+  "tags": []
+}
