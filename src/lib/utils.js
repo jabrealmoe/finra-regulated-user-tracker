@@ -144,39 +144,7 @@ export async function getGroupMembersCached(groupName, product, ttlSeconds = 300
         }
       }
     } else {
-      // Confluence group members
-      let start = 0;
-      let limit = 200;
-      let hasMore = true;
-
-      while (hasMore) {
-        const response = await asApp().requestConfluence(
-          route`/wiki/rest/api/group/${groupName}/member?start=${start}&limit=${limit}`
-        );
-
-        if (response.status === 404) {
-          console.warn(`Confluence group ${groupName} not found.`);
-          break;
-        }
-
-        if (!response.ok) {
-          throw new Error(`Confluence API returned status ${response.status}: ${await response.text()}`);
-        }
-
-        const data = await response.json();
-        if (data.results && Array.isArray(data.results)) {
-          for (const user of data.results) {
-            if (user.accountId) {
-              members.push(user.accountId);
-            }
-          }
-        }
-
-        hasMore = data.results && data.results.length === limit;
-        if (hasMore) {
-          start += limit;
-        }
-      }
+      throw new Error(`getGroupMembersCached is only supported for Jira. Use isUserInGroupConfluence for Confluence.`);
     }
 
     // Cache the resolved list in KVS
@@ -197,6 +165,49 @@ export async function getGroupMembersCached(groupName, product, ttlSeconds = 300
       }
     } catch (e) {}
     return [];
+  }
+}
+
+/**
+ * Checks if a specific Confluence user is in a given group.
+ * Uses the fully supported /wiki/rest/api/user/memberof endpoint to avoid administrative blocks.
+ */
+async function isUserInGroupConfluence(accountId, groupName, ttl) {
+  const cacheKey = `user_groups:${accountId}`;
+  const now = Date.now();
+  const ttlMs = (ttl || 300) * 1000; // default 5 minutes
+
+  try {
+    const cached = await kvs.get(cacheKey);
+    if (cached && (now - cached.fetchedAt < ttlMs)) {
+      return cached.groups.includes(groupName);
+    }
+  } catch (e) {}
+
+  try {
+    const response = await asApp().requestConfluence(
+      route`/wiki/rest/api/user/memberof?accountId=${accountId}`
+    );
+    if (!response.ok) {
+      console.error(`Failed to fetch group membership for user ${accountId}: ${response.status}`);
+      return false;
+    }
+    const data = await response.json();
+    const groups = (data.results && Array.isArray(data.results))
+      ? data.results.map(g => g.name)
+      : [];
+
+    try {
+      await kvs.set(cacheKey, {
+        groups,
+        fetchedAt: now
+      });
+    } catch (e) {}
+
+    return groups.includes(groupName);
+  } catch (err) {
+    console.error(`Error checking group membership for user ${accountId}:`, err);
+    return false;
   }
 }
 
@@ -225,8 +236,19 @@ export async function getRegulatedUsersInvolved(accountIds, product, config) {
   } else {
     // Resolve group members from group name
     const groupName = config.groupName || 'FINRA-Regulated';
-    const groupMembers = await getGroupMembersCached(groupName, product, config.ttl);
-    return uniqueIds.filter(id => groupMembers.includes(id));
+    if (product === 'confluence') {
+      const results = [];
+      for (const id of uniqueIds) {
+        const inGroup = await isUserInGroupConfluence(id, groupName, config.ttl);
+        if (inGroup) {
+          results.push(id);
+        }
+      }
+      return results;
+    } else {
+      const groupMembers = await getGroupMembersCached(groupName, product, config.ttl);
+      return uniqueIds.filter(id => groupMembers.includes(id));
+    }
   }
 }
 
