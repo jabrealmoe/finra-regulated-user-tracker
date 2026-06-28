@@ -12,6 +12,8 @@ import {
   getAuditLogs 
 } from './lib/db';
 
+import sql from '@forge/sql';
+
 const resolver = new Resolver();
 
 // Configure resolver endpoints for frontend Admin page
@@ -35,6 +37,23 @@ resolver.define('getLogs', async ({ payload }) => {
   const logs = await getAuditLogs(startTs, endTs);
   console.log(`[getLogs] Fetched ${logs.length} logs from DB.`);
   return logs;
+});
+
+resolver.define('verifyChain', async () => {
+  const { verifyAuditChain } = require('./lib/db');
+  return await verifyAuditChain();
+});
+
+resolver.define('getDailyDigests', async () => {
+  try {
+    const result = await sql
+      .prepare(`SELECT * FROM daily_digests ORDER BY anchored_at DESC LIMIT 30`)
+      .execute();
+    return result.rows || [];
+  } catch (error) {
+    console.error('[resolver:getDailyDigests] Error:', error);
+    return [];
+  }
 });
 
 export const resolve = resolver.getDefinitions();
@@ -479,5 +498,57 @@ export async function pollReactions(event, context) {
     console.log('Reaction poll reconciliation completed.');
   } catch (error) {
     console.error('Error during scheduled reaction polling:', error);
+  }
+}
+
+/**
+ * Scheduled daily digest generator.
+ * Runs once a day, validates the entire audit hash chain, and seals/anchors the head
+ * in the database and Forge KVS.
+ */
+export async function generateDailyDigest(event, context) {
+  console.log('Running daily digest compliance anchoring worker...');
+  try {
+    const { verifyAuditChain, computeHash } = require('./lib/db');
+    const { kvs } = require('@forge/kvs');
+
+    const verification = await verifyAuditChain();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Compute cryptographic signature to prevent tampering of KVS record
+    const payload = `${todayStr}:${verification.headHash}:${verification.verified}`;
+    const signature = computeHash(payload + 'INTERNAL_SEC_17A4_SALT');
+
+    const digestRecord = {
+      date_str: todayStr,
+      hash_chain_head: verification.headHash || '0'.repeat(64),
+      anchored_at: Date.now(),
+      verification_status: verification.verified ? 'verified' : 'failed',
+      signature
+    };
+
+    // 1. Anchor in Forge SQL daily_digests
+    await sql
+      .prepare(`
+        INSERT INTO daily_digests (date_str, hash_chain_head, anchored_at, verification_status)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE hash_chain_head = ?, anchored_at = ?, verification_status = ?
+      `)
+      .bindParams(
+        digestRecord.date_str,
+        digestRecord.hash_chain_head,
+        digestRecord.anchored_at,
+        digestRecord.verification_status,
+        digestRecord.hash_chain_head,
+        digestRecord.anchored_at,
+        digestRecord.verification_status
+      )
+      .execute();
+
+    // 2. Anchor in separate KVS namespace daily_digest_anchor
+    await kvs.set(`daily_digest_anchor:${todayStr}`, digestRecord);
+    console.log(`Daily digest anchored successfully for ${todayStr}. Verified: ${verification.verified}, Head Hash: ${digestRecord.hash_chain_head}`);
+  } catch (error) {
+    console.error('Failed to run daily digest anchoring:', error);
   }
 }

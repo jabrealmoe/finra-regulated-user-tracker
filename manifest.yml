@@ -25,6 +25,9 @@ modules:
     - key: reaction-poller
       function: pollReactions
       interval: fiveMinute
+    - key: daily-digest-cron
+      function: generateDailyDigest
+      interval: day
   jira:adminPage:
     - key: finra-admin-page-jira
       resource: admin-ui
@@ -47,6 +50,8 @@ modules:
       handler: index.handleConfluenceEvent
     - key: pollReactions
       handler: index.pollReactions
+    - key: generateDailyDigest
+      handler: index.generateDailyDigest
     - key: resolver
       handler: index.resolve
 resources:

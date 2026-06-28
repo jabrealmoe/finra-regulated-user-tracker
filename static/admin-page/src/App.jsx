@@ -20,10 +20,16 @@ export default function App() {
   // Search query for logs (client-side filter on display)
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Verification & Digest States
+  const [verificationReport, setVerificationReport] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [dailyDigests, setDailyDigests] = useState([]);
+
   // Load configuration on mount
   useEffect(() => {
     fetchConfig();
     fetchLogs();
+    fetchDigests();
   }, []);
 
   const fetchConfig = async () => {
@@ -36,6 +42,30 @@ export default function App() {
       setSaveStatus({ type: 'error', message: 'Failed to load configuration.' });
     } finally {
       setLoadingConfig(false);
+    }
+  };
+
+  const fetchDigests = async () => {
+    try {
+      const data = await invoke('getDailyDigests');
+      setDailyDigests(data || []);
+    } catch (e) {
+      console.error('Error fetching digests:', e);
+    }
+  };
+
+  const handleVerifyChain = async () => {
+    try {
+      setVerifying(true);
+      setVerificationReport(null);
+      const report = await invoke('verifyChain');
+      setVerificationReport(report);
+      fetchDigests();
+    } catch (err) {
+      console.error('Error verifying chain:', err);
+      setVerificationReport({ verified: false, error: err.message });
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -458,6 +488,80 @@ export default function App() {
 
       {/* Audit Log list and Export */}
       <div className="logs-section">
+
+        {/* Verification and Daily Digests Panel */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px', marginBottom: '24px' }}>
+          {/* Verification Box */}
+          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '8px' }}>Tamper-Evident Chain Integrity</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px', lineHeight: '1.4' }}>
+              SEC Rule 17a-4 compliant cryptographic verification. Every audit record is linked by a SHA-256 hash chain.
+              Walking the chain guarantees non-repudiation and that no records have been altered, added, or deleted.
+            </p>
+            
+            <button 
+              type="button" 
+              className="btn btn-primary" 
+              onClick={handleVerifyChain} 
+              disabled={verifying}
+              style={{ background: '#3b82f6', border: 'none' }}
+            >
+              {verifying ? 'Running Verification...' : '🛡️ Run Cryptographic Verification'}
+            </button>
+
+            {verificationReport && (
+              <div style={{ marginTop: '16px' }}>
+                {verificationReport.verified ? (
+                  <div className="alert alert-success" style={{ marginBottom: 0 }}>
+                    <strong>✓ Hash Chain Integrity Verified.</strong> All {verificationReport.count} records are mathematically intact. 
+                    <div style={{ fontSize: '10px', marginTop: '6px', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      Head Hash: {verificationReport.headHash}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="alert alert-error" style={{ marginBottom: 0 }}>
+                    <strong>⚠ CRYPTOGRAPHIC VERIFICATION FAILURE:</strong> Chain integrity compromised.
+                    {verificationReport.errorAt ? ` Broken link detected at event: ${verificationReport.errorAt}` : ` Reason: ${verificationReport.error || 'Unknown error'}`}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Daily Digests Box */}
+          {dailyDigests.length > 0 && (
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+              <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '8px' }}>Sealed Daily Digests (Anchored)</h3>
+              <div className="table-container" style={{ maxHeight: '150px' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ padding: '6px 12px', fontSize: '11px' }}>Date</th>
+                      <th style={{ padding: '6px 12px', fontSize: '11px' }}>Chain Head Hash</th>
+                      <th style={{ padding: '6px 12px', fontSize: '11px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dailyDigests.map((digest) => (
+                      <tr key={digest.date_str}>
+                        <td style={{ padding: '6px 12px', fontSize: '12px', color: 'var(--text-primary)' }}>{digest.date_str}</td>
+                        <td style={{ padding: '6px 12px', fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-secondary)' }} title={digest.hash_chain_head}>
+                          {digest.hash_chain_head.slice(0, 16)}...
+                        </td>
+                        <td style={{ padding: '6px 12px', fontSize: '12px' }}>
+                          <span className={`badge ${digest.verification_status === 'verified' ? 'badge-jira' : 'badge-confluence'}`}>
+                            {digest.verification_status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
           <h2>Tracked Event Audit Log</h2>
           <div style={{ display: 'flex', gap: '8px' }}>

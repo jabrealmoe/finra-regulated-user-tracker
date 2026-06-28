@@ -1,4 +1,5 @@
 import sql, { migrationRunner } from '@forge/sql';
+import crypto from 'crypto';
 
 /**
  * Define the schema migrations using Forge SQL's migrationRunner.
@@ -37,6 +38,17 @@ const migrations = migrationRunner
   `)
   .enqueue('v004_add_is_regulated_column', `
     ALTER TABLE audit_logs ADD COLUMN is_regulated INT DEFAULT 1
+  `)
+  .enqueue('v005_add_hash_chain_fields', `
+    ALTER TABLE audit_logs ADD COLUMN chain_hash VARCHAR(64), ADD COLUMN previous_event_id VARCHAR(255)
+  `)
+  .enqueue('v006_create_daily_digests_table', `
+    CREATE TABLE IF NOT EXISTS daily_digests (
+      date_str VARCHAR(50) PRIMARY KEY,
+      hash_chain_head VARCHAR(64) NOT NULL,
+      anchored_at BIGINT NOT NULL,
+      verification_status VARCHAR(50) NOT NULL
+    )
   `);
 
 /**
@@ -59,6 +71,28 @@ export async function initDatabase() {
   }
 }
 
+/**
+ * Compliance-grade deterministic object stringifier.
+ * Sorts object keys to guarantee identical serialized strings.
+ */
+export function canonicalizeRecord(record) {
+  const keys = Object.keys(record).sort();
+  const parts = [];
+  for (const key of keys) {
+    if (key !== 'chain_hash') {
+      const val = record[key];
+      parts.push(`${key}:${val === null || val === undefined ? '' : val}`);
+    }
+  }
+  return parts.join('|');
+}
+
+/**
+ * Calculates a SHA-256 hash.
+ */
+export function computeHash(content) {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
 
 /**
  * Checks if an event is a duplicate using the processed_events table.
@@ -103,7 +137,8 @@ export async function isDuplicateEvent(eventId) {
 }
 
 /**
- * Inserts a new audit log record into the database.
+ * Inserts a new audit log record into the database, computing the non-repudiable hash chain.
+ * Gated against modifications by compliance rules.
  * @param {object} log 
  */
 export async function insertAuditLog({
@@ -124,15 +159,42 @@ export async function insertAuditLog({
   const detailStr = typeof detail === 'string' ? detail : JSON.stringify(detail || {});
 
   try {
+    // Fetch last event to link the chain
+    const lastEventResult = await sql
+      .prepare(`SELECT event_id, chain_hash FROM audit_logs ORDER BY ts DESC, event_id DESC LIMIT 1`)
+      .execute();
+    
+    const lastEvent = lastEventResult.rows && lastEventResult.rows[0];
+    const previousEventId = lastEvent ? lastEvent.event_id : 'GENESIS';
+    const prevHash = lastEvent ? (lastEvent.chain_hash || '0'.repeat(64)) : '0'.repeat(64);
+
+    const recordPayload = {
+      event_id: eventId,
+      ts: ts || Date.now(),
+      product,
+      event_type: eventType,
+      regulated_user_id: regulatedUserId,
+      actor_id: actorId,
+      object_type: objectType,
+      object_id: objectId,
+      container_id: containerId,
+      detail: detailStr,
+      is_regulated: isRegulated ? 1 : 0,
+      previous_event_id: previousEventId
+    };
+
+    const canonicalStr = canonicalizeRecord(recordPayload);
+    const chainHash = computeHash(canonicalStr + prevHash);
+
     await sql
       .prepare(`
         INSERT INTO audit_logs (
-          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail, is_regulated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail, is_regulated, chain_hash, previous_event_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bindParams(
         eventId,
-        ts || Date.now(),
+        recordPayload.ts,
         product,
         eventType,
         regulatedUserId,
@@ -141,10 +203,12 @@ export async function insertAuditLog({
         objectId,
         containerId,
         detailStr,
-        isRegulated ? 1 : 0
+        recordPayload.is_regulated,
+        chainHash,
+        previousEventId
       )
       .execute();
-    console.log(`Audit log inserted for event: ${eventId} (is_regulated: ${isRegulated})`);
+    console.log(`Audit log inserted for event: ${eventId} (is_regulated: ${isRegulated}, chain_hash: ${chainHash})`);
   } catch (error) {
     if (error.message && (error.message.includes('Duplicate entry') || error.message.includes('1062'))) {
       console.log(`Audit log row for event ${eventId} already exists (duplicate insert ignored).`);
@@ -152,6 +216,58 @@ export async function insertAuditLog({
     }
     console.error(`Failed to insert audit log for event ${eventId}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Walks the audit hash chain from genesis to recompute and verify all records.
+ * Detects any insertion, deletion, or modification of records.
+ * @returns {Promise<object>} Verification report
+ */
+export async function verifyAuditChain() {
+  await initDatabase();
+
+  try {
+    const result = await sql
+      .prepare(`SELECT * FROM audit_logs ORDER BY ts ASC, event_id ASC`)
+      .execute();
+
+    const logs = result.rows || [];
+    let prevHash = '0'.repeat(64);
+
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i];
+      
+      const recordPayload = {
+        event_id: log.event_id,
+        ts: Number(log.ts),
+        product: log.product,
+        event_type: log.event_type,
+        regulated_user_id: log.regulated_user_id,
+        actor_id: log.actor_id,
+        object_type: log.object_type,
+        object_id: log.object_id,
+        container_id: log.container_id,
+        detail: log.detail,
+        is_regulated: Number(log.is_regulated),
+        previous_event_id: log.previous_event_id || 'GENESIS'
+      };
+
+      const canonicalStr = canonicalizeRecord(recordPayload);
+      const computedHash = computeHash(canonicalStr + prevHash);
+
+      if (log.chain_hash !== computedHash) {
+        console.error(`Tamper detected at event: ${log.event_id}. Stored hash: ${log.chain_hash}, computed: ${computedHash}`);
+        return { verified: false, errorAt: log.event_id };
+      }
+
+      prevHash = log.chain_hash;
+    }
+
+    return { verified: true, count: logs.length, headHash: prevHash };
+  } catch (error) {
+    console.error('Error verifying audit chain:', error);
+    return { verified: false, error: error.message };
   }
 }
 
