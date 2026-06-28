@@ -167,7 +167,7 @@ const DoomyGame = () => {
         {gameState === 'title' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.94)' }}>
             <h1 className="text-4xl font-bold text-red-500 mb-2" style={{ fontFamily: 'monospace', textShadow: '3px 3px 0 #991b1b', letterSpacing: '0.1em' }}>
-              DOOMY
+              DOOM
             </h1>
             <button 
               className="px-8 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-500 transition-all transform hover:scale-105 shadow-lg mb-6"

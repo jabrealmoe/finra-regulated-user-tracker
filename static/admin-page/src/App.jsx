@@ -201,7 +201,7 @@ export default function App() {
             onClick={() => setActiveGame(activeGame === 'doomy' ? null : 'doomy')}
             style={activeGame === 'doomy' ? { background: '#ef4444', color: '#fff', borderColor: '#ef4444' } : {}}
           >
-            {activeGame === 'doomy' ? 'Hide Game' : '🔥 Play Doomy'}
+            {activeGame === 'doomy' ? 'Hide Game' : '🔥 Play Doom'}
           </button>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
