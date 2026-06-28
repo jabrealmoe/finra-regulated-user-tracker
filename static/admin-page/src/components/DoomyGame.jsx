@@ -165,7 +165,7 @@ const DoomyGame = () => {
         />
 
         {gameState === 'title' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.94)' }}>
+          <div className="absolute flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.94)', top: 0, left: 0, right: 0, bottom: 0 }}>
             <h1 className="text-4xl font-bold text-red-500 mb-2" style={{ fontFamily: 'monospace', textShadow: '3px 3px 0 #991b1b', letterSpacing: '0.1em' }}>
               DOOM
             </h1>
@@ -187,7 +187,7 @@ const DoomyGame = () => {
         )}
 
         {gameState === 'playing' && !isPointerLocked && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.75)' }}>
+          <div className="absolute flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.75)', top: 0, left: 0, right: 0, bottom: 0 }}>
             <span className="text-white font-bold text-sm tracking-widest" style={{ fontFamily: 'monospace' }}>
               CLICK CANVAS TO LOCK MOUSE & PLAY
             </span>
@@ -195,7 +195,7 @@ const DoomyGame = () => {
         )}
 
         {gameState === 'gameover' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(0, 0, 0, 0.95)' }}>
+          <div className="absolute flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(0, 0, 0, 0.95)', top: 0, left: 0, right: 0, bottom: 0 }}>
             <div className="text-red-500 font-bold text-4xl mb-4" style={{ fontFamily: 'monospace', textShadow: '2px 2px 0 #7f1d1d' }}>YOU DIED</div>
             <button 
               className="px-8 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-500 transition-all transform hover:scale-105 shadow-lg"
@@ -208,7 +208,7 @@ const DoomyGame = () => {
         )}
 
         {gameState === 'win' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.95)' }}>
+          <div className="absolute flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.95)', top: 0, left: 0, right: 0, bottom: 0 }}>
             <div className="text-yellow-400 font-bold text-3xl mb-2" style={{ fontFamily: 'monospace', textShadow: '2px 2px 0 #854d0e' }}>
               MISSION ACCOMPLISHED
             </div>
