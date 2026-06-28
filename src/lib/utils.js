@@ -1,4 +1,4 @@
-import { asApp } from '@forge/api';
+import { asApp, route } from '@forge/api';
 import { kvs } from '@forge/kvs';
 
 const CONFIG_KEY = 'finra_config';
@@ -115,7 +115,7 @@ export async function getGroupMembersCached(groupName, product, ttlSeconds = 300
       // Page through Jira group members API (returns up to 50 results at a time)
       while (!isLast) {
         const response = await asApp().requestJira(
-          `/rest/api/3/group/member?groupname=${encodeURIComponent(groupName)}&startAt=${startAt}&maxResults=50`
+          route`/rest/api/3/group/member?groupname=${groupName}&startAt=${startAt}&maxResults=50`
         );
         
         if (response.status === 404) {
@@ -151,7 +151,7 @@ export async function getGroupMembersCached(groupName, product, ttlSeconds = 300
 
       while (hasMore) {
         const response = await asApp().requestConfluence(
-          `/wiki/rest/api/group/${encodeURIComponent(groupName)}/member?start=${start}&limit=${limit}`
+          route`/wiki/rest/api/group/${groupName}/member?start=${start}&limit=${limit}`
         );
 
         if (response.status === 404) {

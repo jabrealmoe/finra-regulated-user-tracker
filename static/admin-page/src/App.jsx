@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@forge/bridge';
 import PacManGame from './components/PacManGame';
+import GalagaGame from './components/GalagaGame';
 
 export default function App() {
   const [config, setConfigState] = useState(null);
@@ -9,8 +10,8 @@ export default function App() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message: string }
   
-  // Pac-Man Game visibility
-  const [showGame, setShowGame] = useState(false);
+  // Active Game State ('pacman' | 'galaga' | null)
+  const [activeGame, setActiveGame] = useState(null);
   
   // Date filters for audit log queries
   const [startDate, setStartDate] = useState('');
@@ -188,16 +189,27 @@ export default function App() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button className="btn btn-secondary" onClick={() => setShowGame(!showGame)}>
-            {showGame ? 'Hide Game' : '🎮 Play Pac-Man'}
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setActiveGame(activeGame === 'pacman' ? null : 'pacman')}
+            style={activeGame === 'pacman' ? { background: '#253858', color: '#fff' } : {}}
+          >
+            {activeGame === 'pacman' ? 'Hide Game' : '🎮 Play Pac-Man'}
+          </button>
+          <button 
+            className="btn btn-secondary" 
+            onClick={() => setActiveGame(activeGame === 'galaga' ? null : 'galaga')}
+            style={activeGame === 'galaga' ? { background: '#253858', color: '#fff' } : {}}
+          >
+            {activeGame === 'galaga' ? 'Hide Game' : '🚀 Play Galaga'}
           </button>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
       </header>
 
-      {showGame && (
+      {activeGame && (
         <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'center' }}>
-          <PacManGame />
+          {activeGame === 'pacman' ? <PacManGame /> : <GalagaGame />}
         </div>
       )}
 
