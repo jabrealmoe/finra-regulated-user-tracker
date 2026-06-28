@@ -119,53 +119,64 @@ const DoomyGame = () => {
 
   return (
     <div 
-      className="pacman-container" 
       ref={containerRef} 
       tabIndex={0}
-      style={{ outline: 'none' }}
+      className="flex flex-col items-center justify-center mb-6 w-full outline-none"
     >
-      <div className="pacman-header">
-        <div className="pacman-score-panel">
-          <div className="pacman-score-box">
-            <div className="pacman-score-label" style={{ color: '#ef4444' }}>ENGINE</div>
-            <div className="pacman-score-val" style={{ fontSize: '10px' }}>3D DDA RAYCASTER</div>
+      {/* Header Panel */}
+      <div 
+        className="flex items-center justify-between mb-2" 
+        style={{ width: '100%', maxWidth: '648px', padding: '0 8px' }}
+      >
+        <div className="flex space-x-8">
+          <div>
+            <span style={{ fontSize: '10px', color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Engine</span>
+            <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'bold' }}>3D DDA Raycaster</span>
           </div>
-          <div className="pacman-score-box">
-            <div className="pacman-score-label" style={{ color: '#ef4444' }}>MISSION</div>
-            <div className="pacman-score-val" style={{ fontSize: '10px' }}>FIND THE RED PORTAL</div>
+          <div>
+            <span style={{ fontSize: '10px', color: '#94a3b8', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Mission</span>
+            <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'bold' }}>Find the Red Portal</span>
           </div>
         </div>
         <button 
           onClick={handleMuteToggle}
-          className="pacman-sound-toggle"
+          className={`p-2 rounded-full transition-colors ${!muted ? 'bg-red-600 hover:bg-red-500' : 'bg-slate-600 hover:bg-slate-500'}`}
+          style={{ border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           title={muted ? "Unmute sounds" : "Mute sounds"}
         >
-          {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+          {muted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
         </button>
       </div>
 
-      <div className="pacman-canvas-wrapper" style={{ borderColor: '#ef4444' }}>
+      {/* 3D Canvas Box */}
+      <div className="relative rounded-xl overflow-hidden shadow-2xl border-4 border-slate-700 bg-black">
         <canvas 
           ref={canvasRef} 
           width={320} 
           height={240}
+          className="block"
           style={{ 
-            display: 'block', 
+            width: '640px',
+            height: '480px',
             background: '#060713',
-            imageRendering: 'pixelated', // Nearest-neighbor scaling
+            imageRendering: 'pixelated', // Keep pixel art chunky scaling
             cursor: gameState === 'playing' ? 'crosshair' : 'default'
           }}
         />
 
         {gameState === 'title' && (
-          <div className="pacman-overlay" style={{ background: 'rgba(6, 7, 19, 0.9)' }}>
-            <div className="pacman-title" style={{ color: '#ef4444', textShadow: '0 0 12px rgba(239,68,68,0.6)' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.94)' }}>
+            <h1 className="text-4xl font-bold text-red-500 mb-2" style={{ fontFamily: 'monospace', textShadow: '3px 3px 0 #991b1b', letterSpacing: '0.1em' }}>
               DOOMY
-            </div>
-            <button className="pacman-start-btn" style={{ background: '#ef4444' }} onClick={startGame}>
-              PLAY MISSION
+            </h1>
+            <button 
+              className="px-8 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-500 transition-all transform hover:scale-105 shadow-lg mb-6"
+              style={{ border: 'none', cursor: 'pointer' }}
+              onClick={startGame}
+            >
+              🔥 ENTER COMPLEX
             </button>
-            <div className="pacman-instructions" style={{ fontSize: '10px', lineHeight: '1.4' }}>
+            <div style={{ color: '#94a3b8', fontSize: '11px', lineHeight: '1.5', fontFamily: 'monospace' }}>
               WASD / ARROWS • WALK & STRAFE<br />
               MOUSE • LOOK & ROTATE<br />
               SPACEBAR / CLICK • FIRE WEAPON<br />
@@ -176,41 +187,49 @@ const DoomyGame = () => {
         )}
 
         {gameState === 'playing' && !isPointerLocked && (
-          <div className="pacman-overlay" style={{ background: 'rgba(6, 7, 19, 0.75)' }}>
-            <div className="pacman-instructions" style={{ fontSize: '13px', fontWeight: 'bold' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.75)' }}>
+            <span className="text-white font-bold text-sm tracking-widest" style={{ fontFamily: 'monospace' }}>
               CLICK CANVAS TO LOCK MOUSE & PLAY
-            </div>
+            </span>
           </div>
         )}
 
         {gameState === 'gameover' && (
-          <div className="pacman-overlay" style={{ background: 'rgba(0, 0, 0, 0.92)' }}>
-            <div className="pacman-gameover" style={{ color: '#ef4444', fontSize: '24px' }}>YOU DIED</div>
-            <button className="pacman-start-btn" style={{ background: '#ef4444' }} onClick={startGame}>
-              TRY AGAIN
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(0, 0, 0, 0.95)' }}>
+            <div className="text-red-500 font-bold text-4xl mb-4" style={{ fontFamily: 'monospace', textShadow: '2px 2px 0 #7f1d1d' }}>YOU DIED</div>
+            <button 
+              className="px-8 py-3 bg-red-600 text-white font-bold text-lg rounded-lg hover:bg-red-500 transition-all transform hover:scale-105 shadow-lg"
+              style={{ border: 'none', cursor: 'pointer' }}
+              onClick={startGame}
+            >
+              🔄 TRY AGAIN
             </button>
           </div>
         )}
 
         {gameState === 'win' && (
-          <div className="pacman-overlay" style={{ background: 'rgba(6, 7, 19, 0.95)' }}>
-            <div className="pacman-title" style={{ color: '#ecc94b', fontSize: '20px', textShadow: '0 0 8px rgba(236,201,75,0.5)' }}>
-              LEVEL COMPLETE
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center" style={{ background: 'rgba(6, 7, 19, 0.95)' }}>
+            <div className="text-yellow-400 font-bold text-3xl mb-2" style={{ fontFamily: 'monospace', textShadow: '2px 2px 0 #854d0e' }}>
+              MISSION ACCOMPLISHED
             </div>
-            <div className="pacman-instructions" style={{ marginBottom: '16px', color: '#a0aec0' }}>
-              YOU ESCAPED THE COMPLEX!
+            <div className="mb-6" style={{ color: '#cbd5e1', fontSize: '13px' }}>
+              YOU ESCAPED THE COMPLEX VIA THE EXIT PORTAL!
             </div>
-            <button className="pacman-start-btn" style={{ background: '#ecc94b', color: '#1a202c' }} onClick={startGame}>
-              REPLAY MISSION
+            <button 
+              className="px-8 py-3 bg-yellow-500 text-black font-bold text-lg rounded-lg hover:bg-yellow-400 transition-all transform hover:scale-105 shadow-lg"
+              style={{ border: 'none', cursor: 'pointer' }}
+              onClick={startGame}
+            >
+              🎮 REPLAY MISSION
             </button>
           </div>
         )}
       </div>
 
-      <div className="pacman-footer">
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '11px', textTransform: 'uppercase' }}>
-          © 1993 id Software Clone
-        </div>
+      {/* Controls description panel */}
+      <div className="text-slate-400 text-xs mt-2 font-mono text-center" style={{ maxWidth: '640px', lineHeight: '1.5' }}>
+        <strong>Movement Controls</strong>: Move with <kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>W</kbd>/<kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>S</kbd> (or <kbd>↑</kbd>/<kbd>↓</kbd>), Strafe with <kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>A</kbd>/<kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>D</kbd>, Turn with mouse rotation (or Q/E/Arrows).<br />
+        <strong>Actions</strong>: Shoot with <kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>Spacebar</kbd> / Left-Click, Open doors with <kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>E</kbd>, Switch weapons with <kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>1</kbd>-<kbd style={{ background: '#334155', padding: '2px 4px', borderRadius: '3px' }}>4</kbd> keys.
       </div>
     </div>
   );
