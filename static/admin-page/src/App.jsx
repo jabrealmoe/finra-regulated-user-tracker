@@ -25,12 +25,33 @@ export default function App() {
   const [verifying, setVerifying] = useState(false);
   const [dailyDigests, setDailyDigests] = useState([]);
 
+  // Review Queue States
+  const [selectedLogForReview, setSelectedLogForReview] = useState(null);
+  const [reviewStatus, setReviewStatus] = useState('reviewed-no-concern');
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'pending' | 'reviewed'
+
   // Load configuration on mount
   useEffect(() => {
     fetchConfig();
     fetchLogs();
     fetchDigests();
   }, []);
+
+  const handleSubmitReview = async (eventId) => {
+    try {
+      setSubmittingReview(true);
+      await invoke('submitReview', { eventId, status: reviewStatus, notes: reviewNotes });
+      setSelectedLogForReview(null);
+      setReviewNotes('');
+      await fetchLogs();
+    } catch (err) {
+      console.error('Error submitting review:', err);
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   const fetchConfig = async () => {
     try {
@@ -187,8 +208,18 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Filter logs list based on search bar
+  // Filter logs list based on search bar and compliance review queue filters
   const filteredLogs = logs.filter(log => {
+    // 1. Review queue lifecycle filter
+    const status = log.review_status || 'captured';
+    if (reviewFilter === 'pending' && status !== 'captured' && status !== 'pending-review') {
+      return false;
+    }
+    if (reviewFilter === 'reviewed' && status === 'captured') {
+      return false;
+    }
+
+    // 2. Text search query filter
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -606,6 +637,58 @@ export default function App() {
           />
         </div>
 
+        {/* Tab Navigator */}
+        <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '20px', gap: '20px' }}>
+          <button 
+            type="button"
+            onClick={() => setReviewFilter('all')}
+            style={{
+              padding: '10px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: reviewFilter === 'all' ? '2px solid var(--accent-color)' : 'none',
+              color: reviewFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}
+          >
+            📄 All Events Audit Trail
+          </button>
+          <button 
+            type="button"
+            onClick={() => setReviewFilter('pending')}
+            style={{
+              padding: '10px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: reviewFilter === 'pending' ? '2px solid #eab308' : 'none',
+              color: reviewFilter === 'pending' ? 'var(--text-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}
+          >
+            📥 Pending Review Queue ({logs.filter(l => !l.review_status).length})
+          </button>
+          <button 
+            type="button"
+            onClick={() => setReviewFilter('reviewed')}
+            style={{
+              padding: '10px 16px',
+              background: 'none',
+              border: 'none',
+              borderBottom: reviewFilter === 'reviewed' ? '2px solid var(--success-color)' : 'none',
+              color: reviewFilter === 'reviewed' ? 'var(--text-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '14px'
+            }}
+          >
+            ✓ Dispositioned Logs
+          </button>
+        </div>
+
         {loadingLogs ? (
           <div className="loading">
             <div className="loading-spinner"></div>
@@ -616,7 +699,7 @@ export default function App() {
             No audit logs found. Try adjusting filters or starting actions in Jira/Confluence.
           </div>
         ) : (
-          <div className="table-container">
+          <div className="table-container" style={{ overflow: 'visible' }}>
             <table>
               <thead>
                 <tr>
@@ -627,6 +710,8 @@ export default function App() {
                   <th>Actor</th>
                   <th>Object Type (ID)</th>
                   <th>Details</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -650,6 +735,68 @@ export default function App() {
                     </td>
                     <td title={log.detail}>
                       {log.detail}
+                    </td>
+                    <td>
+                      <span 
+                        className="badge" 
+                        style={
+                          log.review_status === 'escalated' ? { background: 'rgba(239,68,68,0.2)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' } :
+                          log.review_status === 'remediated' ? { background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' } :
+                          log.review_status === 'reviewed-no-concern' ? { background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' } :
+                          { background: 'rgba(234,179,8,0.2)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)' }
+                        }
+                      >
+                        {log.review_status || 'captured'}
+                      </span>
+                    </td>
+                    <td style={{ position: 'relative' }}>
+                      {selectedLogForReview === log.event_id ? (
+                        <div style={{ background: '#1e293b', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '16px', position: 'absolute', right: '10px', top: '100%', zIndex: 100, width: '320px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.8)' }}>
+                          <h4 style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '8px' }}>Log Triage Disposition</h4>
+                          <div className="form-group">
+                            <label>Status</label>
+                            <select value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
+                              <option value="reviewed-no-concern">Reviewed (No Concern)</option>
+                              <option value="escalated">Escalated</option>
+                              <option value="remediated">Remediated</option>
+                            </select>
+                          </div>
+                          <div className="form-group">
+                            <label>Notes</label>
+                            <textarea 
+                              value={reviewNotes} 
+                              onChange={(e) => setReviewNotes(e.target.value)} 
+                              placeholder="Describe disposition actions..."
+                              rows={3}
+                            />
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button type="button" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setSelectedLogForReview(null)}>Cancel</button>
+                            <button 
+                              type="button"
+                              className="btn btn-primary" 
+                              style={{ padding: '6px 12px', fontSize: '12px', background: '#3b82f6', border: 'none' }}
+                              onClick={() => handleSubmitReview(log.event_id)}
+                              disabled={submittingReview}
+                            >
+                              Submit
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button 
+                          type="button"
+                          className="btn btn-secondary" 
+                          style={{ padding: '4px 10px', fontSize: '12px' }}
+                          onClick={() => {
+                            setSelectedLogForReview(log.event_id);
+                            setReviewStatus(log.review_status || 'reviewed-no-concern');
+                            setReviewNotes(log.notes || '');
+                          }}
+                        >
+                          Review
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

@@ -49,6 +49,17 @@ const migrations = migrationRunner
       anchored_at BIGINT NOT NULL,
       verification_status VARCHAR(50) NOT NULL
     )
+  `)
+  .enqueue('v007_create_compliance_reviews_table', `
+    CREATE TABLE IF NOT EXISTS compliance_reviews (
+      review_id VARCHAR(255) PRIMARY KEY,
+      event_id VARCHAR(255) NOT NULL,
+      status VARCHAR(50) NOT NULL,
+      reviewer_id VARCHAR(255) NOT NULL,
+      review_ts BIGINT NOT NULL,
+      notes TEXT,
+      chain_hash VARCHAR(64) NOT NULL
+    )
   `);
 
 /**
@@ -272,7 +283,7 @@ export async function verifyAuditChain() {
 }
 
 /**
- * Retrieves audit logs for a given date range.
+ * Retrieves audit logs for a given date range, joined with their latest compliance review status.
  * @param {number} startTs 
  * @param {number} endTs 
  * @returns {Promise<Array>}
@@ -281,21 +292,30 @@ export async function getAuditLogs(startTs, endTs) {
   await initDatabase();
 
   try {
-    let query = `SELECT * FROM audit_logs`;
+    let query = `
+      SELECT a.*, r.status AS review_status, r.reviewer_id, r.review_ts, r.notes, r.chain_hash AS review_hash
+      FROM audit_logs a
+      LEFT JOIN (
+        SELECT r1.* FROM compliance_reviews r1
+        INNER JOIN (
+          SELECT event_id, MAX(review_ts) as max_ts FROM compliance_reviews GROUP BY event_id
+        ) r2 ON r1.event_id = r2.event_id AND r1.review_ts = r2.max_ts
+      ) r ON a.event_id = r.event_id
+    `;
     const params = [];
 
     if (startTs && endTs) {
-      query += ` WHERE ts >= ? AND ts <= ?`;
+      query += ` WHERE a.ts >= ? AND a.ts <= ?`;
       params.push(startTs, endTs);
     } else if (startTs) {
-      query += ` WHERE ts >= ?`;
+      query += ` WHERE a.ts >= ?`;
       params.push(startTs);
     } else if (endTs) {
-      query += ` WHERE ts <= ?`;
+      query += ` WHERE a.ts <= ?`;
       params.push(endTs);
     }
 
-    query += ` ORDER BY ts DESC LIMIT 1000`; // Limit to prevent memory issues
+    query += ` ORDER BY a.ts DESC LIMIT 1000`;
 
     const statement = sql.prepare(query);
     if (params.length > 0) {
@@ -306,6 +326,65 @@ export async function getAuditLogs(startTs, endTs) {
     return result.rows || [];
   } catch (error) {
     console.error('Failed to retrieve audit logs:', error);
+    throw error;
+  }
+}
+
+/**
+ * Inserts an append-only compliance review record, maintaining a separate cryptographic chain.
+ * @param {object} review 
+ * @returns {Promise<object>} Status report
+ */
+export async function insertComplianceReview({
+  eventId,
+  status,
+  reviewerId,
+  notes
+}) {
+  await initDatabase();
+  const reviewId = `rev_${eventId}_${Date.now()}`;
+  const reviewTs = Date.now();
+
+  try {
+    // Fetch last review to link the chain
+    const lastReviewResult = await sql
+      .prepare(`SELECT review_id, chain_hash FROM compliance_reviews ORDER BY review_ts DESC, review_id DESC LIMIT 1`)
+      .execute();
+
+    const lastReview = lastReviewResult.rows && lastReviewResult.rows[0];
+    const prevHash = lastReview ? (lastReview.chain_hash || '0'.repeat(64)) : '0'.repeat(64);
+
+    const recordPayload = {
+      review_id: reviewId,
+      event_id: eventId,
+      status,
+      reviewer_id: reviewerId,
+      review_ts: reviewTs,
+      notes: notes || ''
+    };
+
+    const canonicalStr = canonicalizeRecord(recordPayload);
+    const chainHash = computeHash(canonicalStr + prevHash);
+
+    await sql
+      .prepare(`
+        INSERT INTO compliance_reviews (review_id, event_id, status, reviewer_id, review_ts, notes, chain_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .bindParams(
+        reviewId,
+        eventId,
+        status,
+        reviewerId,
+        reviewTs,
+        recordPayload.notes,
+        chainHash
+      )
+      .execute();
+    console.log(`Compliance review logged: ${reviewId} (status: ${status}, chain_hash: ${chainHash})`);
+    return { success: true, reviewId, chainHash };
+  } catch (error) {
+    console.error(`Failed to insert compliance review for event ${eventId}:`, error);
     throw error;
   }
 }

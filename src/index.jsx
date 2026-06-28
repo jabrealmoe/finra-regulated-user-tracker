@@ -56,6 +56,18 @@ resolver.define('getDailyDigests', async () => {
   }
 });
 
+resolver.define('submitReview', async ({ payload, context }) => {
+  const { eventId, status, notes } = payload;
+  const { insertComplianceReview } = require('./lib/db');
+  const reviewerId = context.accountId || 'system-admin';
+  return await insertComplianceReview({
+    eventId,
+    status,
+    reviewerId,
+    notes
+  });
+});
+
 export const resolve = resolver.getDefinitions();
 
 /**
