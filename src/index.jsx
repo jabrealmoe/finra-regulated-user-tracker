@@ -252,8 +252,12 @@ export async function handleConfluenceEvent(event, context) {
         return;
       }
 
-      // Re-fetch comment body (v2 API) to get ADF format for mention extraction
-      const res = await asApp().requestConfluence(route`/wiki/api/v2/comments/${commentId}?body-format=atlas_doc_format`);
+      // Re-fetch comment body (v2 API) to get ADF format for mention extraction.
+      // In Confluence REST API v2, comments are retrieved via footer-comments or inline-comments endpoints.
+      let res = await asApp().requestConfluence(route`/wiki/api/v2/footer-comments/${commentId}?body-format=atlas_doc_format`);
+      if (res.status === 404) {
+        res = await asApp().requestConfluence(route`/wiki/api/v2/inline-comments/${commentId}?body-format=atlas_doc_format`);
+      }
       if (!res.ok) throw new Error(`Failed to fetch Confluence comment: ${res.status}`);
       
       const commentData = await res.json();
