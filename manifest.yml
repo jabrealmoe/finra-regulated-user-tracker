@@ -74,4 +74,6 @@ permissions:
     - read:attachment:confluence
     - read:comment:confluence
     - read:confluence-groups
+    - read:group:confluence
+    - read:user:confluence
     - storage:app
