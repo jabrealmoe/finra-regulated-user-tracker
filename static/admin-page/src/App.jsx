@@ -51,6 +51,7 @@ export default function App() {
   const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'pending' | 'reviewed'
   const [sortBy, setSortBy] = useState('date_desc'); // 'date_desc' | 'risk_desc'
   const [selectedDetails, setSelectedDetails] = useState(null);
+  const [mainTab, setMainTab] = useState('audit'); // 'webhook' | 'lexicon' | 'chain' | 'audit'
 
   // Load configuration on mount
   useEffect(() => {
@@ -518,109 +519,145 @@ export default function App() {
           </div>
         </div>
 
-        {/* Webhook Configuration Card */}
-        <div className="card" style={{ marginTop: '20px' }}>
-          <h2>Webhook Configuration</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
-            Configure automatic forwarding of compliance audit logs in EML email format to an n8n webhook or custom HTTP receiver.
-          </p>
-          
-          <div className="form-group">
-            <label>Webhook Destination Target</label>
-            <select 
-              value={config.webhookTarget || 'disabled'} 
-              onChange={(e) => setConfigState(prev => ({ ...prev, webhookTarget: e.target.value }))}
-            >
-              <option value="disabled">Disabled</option>
-              <option value="test">n8n Test Webhook (Sandbox)</option>
-              <option value="prod">n8n Production Webhook (Active)</option>
-              <option value="custom">Custom Webhook URL</option>
-            </select>
-          </div>
-
-          {config.webhookTarget === 'custom' && (
-            <div className="form-group">
-              <label>Custom Webhook URL</label>
-              <input 
-                type="url" 
-                value={config.customWebhookUrl || ''} 
-                onChange={(e) => setConfigState(prev => ({ ...prev, customWebhookUrl: e.target.value }))}
-                placeholder="https://your-banking-middleware.com/webhook"
-                required
-              />
-              <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
-                Note: The destination host domain must be whitelisted in the app manifest.yml.
-              </small>
-            </div>
-          )}
-
-          {config.webhookTarget !== 'disabled' && config.webhookTarget !== 'custom' && (
-            <div style={{ marginTop: '8px', padding: '12px', background: '#f4f5f7', borderRadius: '4px', borderLeft: '3px solid var(--accent-color)' }}>
-              <small style={{ fontSize: '12px', color: '#172b4d', fontWeight: '500' }}>
-                Target Endpoint: {config.webhookTarget === 'test' 
-                  ? 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
-                  : 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
-                }
-              </small>
-            </div>
-          )}
-
-          <div className="toggle-row" style={{ marginTop: '20px' }}>
-            <div className="toggle-label">
-              <span className="toggle-title">n8n Deep Risk Enrichment</span>
-              <span className="toggle-desc">Enables deep risk scoring via external n8n workflow</span>
-            </div>
-            <label className="switch">
-              <input 
-                type="checkbox" 
-                checked={config.n8nEnrichment || false} 
-                onChange={(e) => setConfigState(prev => ({ ...prev, n8nEnrichment: e.target.checked }))}
-              />
-              <span className="slider"></span>
-            </label>
-          </div>
-        </div>
-
-        {/* Lexicon Rules Card */}
-        <div className="card" style={{ marginTop: '20px' }}>
-          <h2>Lexicon Rules Engine</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
-            Configure regular expressions to evaluate baseline risk scores deterministically in-Forge. Format: <code>pattern,score,flag</code> (one rule per line).
-          </p>
-          <div className="form-group">
-            <label>Baseline Lexicon Rules</label>
-            <textarea 
-              rows="6"
-              value={config.lexiconRules ? config.lexiconRules.map(r => `${r.pattern},${r.score},${r.flag}`).join('\n') : ''}
-              onChange={(e) => {
-                const lines = e.target.value.split('\n');
-                const rules = lines.map(line => {
-                  const parts = line.split(',');
-                  if (parts.length >= 3) {
-                    return { pattern: parts[0].trim(), score: parseInt(parts[1].trim()) || 0, flag: parts[2].trim() };
-                  }
-                  return null;
-                }).filter(Boolean);
-                setConfigState(prev => ({ ...prev, lexiconRules: rules }));
+        {/* ─── Main Tab Bar ─── */}
+        <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginTop: '24px', gap: '0', flexWrap: 'wrap' }}>
+          {[
+            { key: 'audit', label: '📋 Tracked Event Audit Log' },
+            { key: 'webhook', label: '🔗 Webhook Configuration' },
+            { key: 'lexicon', label: '🏷️ Lexicon Rules Engine' },
+            { key: 'chain', label: '🛡️ Chain Integrity' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setMainTab(tab.key)}
+              style={{
+                padding: '12px 20px',
+                background: 'none',
+                border: 'none',
+                borderBottom: mainTab === tab.key ? '3px solid var(--accent-color)' : '3px solid transparent',
+                color: mainTab === tab.key ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                transition: 'all 0.2s ease'
               }}
-              placeholder="e.g. insider,80,POSSIBLE_INSIDER"
-              style={{ resize: 'vertical', fontFamily: 'monospace' }}
-            />
-          </div>
-          <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-start' }}>
-            <button type="submit" className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '15px' }}>
-              Save Configuration
+            >
+              {tab.label}
             </button>
-          </div>
+          ))}
         </div>
+
+        {/* ─── Tab: Webhook Configuration ─── */}
+        {mainTab === 'webhook' && (
+          <div className="card" style={{ marginTop: '20px' }}>
+            <h2>Webhook Configuration</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+              Configure automatic forwarding of compliance audit logs in EML email format to an n8n webhook or custom HTTP receiver.
+            </p>
+            
+            <div className="form-group">
+              <label>Webhook Destination Target</label>
+              <select 
+                value={config.webhookTarget || 'disabled'} 
+                onChange={(e) => setConfigState(prev => ({ ...prev, webhookTarget: e.target.value }))}
+              >
+                <option value="disabled">Disabled</option>
+                <option value="test">n8n Test Webhook (Sandbox)</option>
+                <option value="prod">n8n Production Webhook (Active)</option>
+                <option value="custom">Custom Webhook URL</option>
+              </select>
+            </div>
+
+            {config.webhookTarget === 'custom' && (
+              <div className="form-group">
+                <label>Custom Webhook URL</label>
+                <input 
+                  type="url" 
+                  value={config.customWebhookUrl || ''} 
+                  onChange={(e) => setConfigState(prev => ({ ...prev, customWebhookUrl: e.target.value }))}
+                  placeholder="https://your-banking-middleware.com/webhook"
+                  required
+                />
+                <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                  Note: The destination host domain must be whitelisted in the app manifest.yml.
+                </small>
+              </div>
+            )}
+
+            {config.webhookTarget !== 'disabled' && config.webhookTarget !== 'custom' && (
+              <div style={{ marginTop: '8px', padding: '12px', background: '#f4f5f7', borderRadius: '4px', borderLeft: '3px solid var(--accent-color)' }}>
+                <small style={{ fontSize: '12px', color: '#172b4d', fontWeight: '500' }}>
+                  Target Endpoint: {config.webhookTarget === 'test' 
+                    ? 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                    : 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                  }
+                </small>
+              </div>
+            )}
+
+            <div className="toggle-row" style={{ marginTop: '20px' }}>
+              <div className="toggle-label">
+                <span className="toggle-title">n8n Deep Risk Enrichment</span>
+                <span className="toggle-desc">Enables deep risk scoring via external n8n workflow</span>
+              </div>
+              <label className="switch">
+                <input 
+                  type="checkbox" 
+                  checked={config.n8nEnrichment || false} 
+                  onChange={(e) => setConfigState(prev => ({ ...prev, n8nEnrichment: e.target.checked }))}
+                />
+                <span className="slider"></span>
+              </label>
+            </div>
+
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-start' }}>
+              <button type="submit" className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '15px' }}>
+                Save Configuration
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Tab: Lexicon Rules Engine ─── */}
+        {mainTab === 'lexicon' && (
+          <div className="card" style={{ marginTop: '20px' }}>
+            <h2>Lexicon Rules Engine</h2>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+              Configure regular expressions to evaluate baseline risk scores deterministically in-Forge. Format: <code>pattern,score,flag</code> (one rule per line).
+            </p>
+            <div className="form-group">
+              <label>Baseline Lexicon Rules</label>
+              <textarea 
+                rows="6"
+                value={config.lexiconRules ? config.lexiconRules.map(r => `${r.pattern},${r.score},${r.flag}`).join('\n') : ''}
+                onChange={(e) => {
+                  const lines = e.target.value.split('\n');
+                  const rules = lines.map(line => {
+                    const parts = line.split(',');
+                    if (parts.length >= 3) {
+                      return { pattern: parts[0].trim(), score: parseInt(parts[1].trim()) || 0, flag: parts[2].trim() };
+                    }
+                    return null;
+                  }).filter(Boolean);
+                  setConfigState(prev => ({ ...prev, lexiconRules: rules }));
+                }}
+                placeholder="e.g. insider,80,POSSIBLE_INSIDER"
+                style={{ resize: 'vertical', fontFamily: 'monospace' }}
+              />
+            </div>
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-start' }}>
+              <button type="submit" className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '15px' }}>
+                Save Configuration
+              </button>
+            </div>
+          </div>
+        )}
       </form>
 
-      {/* Audit Log list and Export */}
-      <div className="logs-section">
-
-        {/* Verification and Daily Digests Panel */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px', marginBottom: '24px' }}>
-          {/* Verification Box */}
+      {/* ─── Tab: Chain Integrity (outside form, read-only) ─── */}
+      {mainTab === 'chain' && (
+        <div className="logs-section" style={{ marginTop: '20px' }}>
           <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
             <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '8px' }}>Tamper-Evident Chain Integrity</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px', lineHeight: '1.4' }}>
@@ -657,9 +694,8 @@ export default function App() {
             )}
           </div>
 
-          {/* Daily Digests Box */}
           {dailyDigests.length > 0 && (
-            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '20px' }}>
               <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '8px' }}>Sealed Daily Digests (Anchored)</h3>
               <div className="table-container" style={{ maxHeight: '150px' }}>
                 <table>
@@ -690,202 +726,207 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-          <h2>Tracked Event Audit Log</h2>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button className="btn btn-secondary" onClick={handleExportCSV} disabled={filteredLogs.length === 0}>
-              Export CSV
-            </button>
-            <button className="btn btn-secondary" onClick={handleExportJSON} disabled={filteredLogs.length === 0}>
-              Export JSON
-            </button>
+      {/* ─── Tab: Tracked Event Audit Log (outside form, full width) ─── */}
+      {mainTab === 'audit' && (
+        <div className="logs-section" style={{ marginTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <h2>Tracked Event Audit Log</h2>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-secondary" onClick={handleExportCSV} disabled={filteredLogs.length === 0}>
+                Export CSV
+              </button>
+              <button className="btn btn-secondary" onClick={handleExportJSON} disabled={filteredLogs.length === 0}>
+                Export JSON
+              </button>
+            </div>
           </div>
-        </div>
 
-        <form onSubmit={handleFilterLogs} className="logs-filter-bar" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Start Date</label>
+          <form onSubmit={handleFilterLogs} className="logs-filter-bar" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Start Date</label>
+              <input 
+                type="text" 
+                placeholder="YYYY-MM-DD" 
+                value={startDate} 
+                onChange={(e) => setStartDate(e.target.value)} 
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>End Date</label>
+              <input 
+                type="text" 
+                placeholder="YYYY-MM-DD" 
+                value={endDate} 
+                onChange={(e) => setEndDate(e.target.value)} 
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Sort Triage By</label>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                <option value="date_desc">Newest First</option>
+                <option value="risk_desc">⚠️ Highest Risk First</option>
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="submit" className="btn btn-primary">Filter</button>
+              <button type="button" className="btn btn-secondary" onClick={handleResetFilters}>Clear</button>
+            </div>
+          </form>
+
+          <div className="form-group" style={{ marginTop: '16px' }}>
             <input 
               type="text" 
-              placeholder="YYYY-MM-DD" 
-              value={startDate} 
-              onChange={(e) => setStartDate(e.target.value)} 
+              placeholder="Search logs by Event Type, Regulated User, Actor ID, or details..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>End Date</label>
-            <input 
-              type="text" 
-              placeholder="YYYY-MM-DD" 
-              value={endDate} 
-              onChange={(e) => setEndDate(e.target.value)} 
-            />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Sort Triage By</label>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
-              <option value="date_desc">Newest First</option>
-              <option value="risk_desc">⚠️ Highest Risk First</option>
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button type="submit" className="btn btn-primary">Filter</button>
-            <button type="button" className="btn btn-secondary" onClick={handleResetFilters}>Clear</button>
-          </div>
-        </form>
 
-        <div className="form-group" style={{ marginTop: '16px' }}>
-          <input 
-            type="text" 
-            placeholder="Search logs by Event Type, Regulated User, Actor ID, or details..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-
-        {/* Tab Navigator */}
-        <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '20px', gap: '20px' }}>
-          <button 
-            type="button"
-            onClick={() => setReviewFilter('all')}
-            style={{
-              padding: '10px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: reviewFilter === 'all' ? '2px solid var(--accent-color)' : 'none',
-              color: reviewFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '14px'
-            }}
-          >
-            📄 All Events Audit Trail
-          </button>
-          <button 
-            type="button"
-            onClick={() => setReviewFilter('pending')}
-            style={{
-              padding: '10px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: reviewFilter === 'pending' ? '2px solid #eab308' : 'none',
-              color: reviewFilter === 'pending' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '14px'
-            }}
-          >
-            📥 Pending Review Queue ({logs.filter(l => !l.review_status).length})
-          </button>
-          <button 
-            type="button"
-            onClick={() => setReviewFilter('reviewed')}
-            style={{
-              padding: '10px 16px',
-              background: 'none',
-              border: 'none',
-              borderBottom: reviewFilter === 'reviewed' ? '2px solid var(--success-color)' : 'none',
-              color: reviewFilter === 'reviewed' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              cursor: 'pointer',
-              fontWeight: '600',
-              fontSize: '14px'
-            }}
-          >
-            ✓ Dispositioned Logs
-          </button>
-        </div>
-
-        {loadingLogs ? (
-          <div className="loading">
-            <div className="loading-spinner"></div>
-            Loading audit logs...
+          {/* Sub-Tab Navigator for Review Queue */}
+          <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '20px', gap: '20px' }}>
+            <button 
+              type="button"
+              onClick={() => setReviewFilter('all')}
+              style={{
+                padding: '10px 16px',
+                background: 'none',
+                border: 'none',
+                borderBottom: reviewFilter === 'all' ? '2px solid var(--accent-color)' : 'none',
+                color: reviewFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              📁 All Events Audit Trail
+            </button>
+            <button 
+              type="button"
+              onClick={() => setReviewFilter('pending')}
+              style={{
+                padding: '10px 16px',
+                background: 'none',
+                border: 'none',
+                borderBottom: reviewFilter === 'pending' ? '2px solid var(--warning-color)' : 'none',
+                color: reviewFilter === 'pending' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              🔥 Pending Review Queue ({logs.filter(l => !l.review_status || l.review_status === 'captured' || l.review_status === 'pending-review').filter(l => l.product === productContext).length})
+            </button>
+            <button 
+              type="button"
+              onClick={() => setReviewFilter('reviewed')}
+              style={{
+                padding: '10px 16px',
+                background: 'none',
+                border: 'none',
+                borderBottom: reviewFilter === 'reviewed' ? '2px solid var(--success-color)' : 'none',
+                color: reviewFilter === 'reviewed' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              ✓ Dispositioned Logs
+            </button>
           </div>
-        ) : sortedLogs.length === 0 ? (
-          <div className="empty-state">
-            No audit logs found. Try adjusting filters or starting actions in Jira/Confluence.
-          </div>
-        ) : (
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Event Type</th>
-                  <th>Regulated User</th>
-                  <th>Object Type (ID)</th>
-                  <th>Details</th>
-                  <th>Risk Score</th>
-                  <th>Status</th>
-                  <th>Supervisory Triage</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedLogs.map((log) => (
-                  <tr key={log.event_id}>
-                    <td>{new Date(Number(log.ts)).toLocaleString()}</td>
-                    <td>{getFriendlyEventName(log.event_type)}</td>
-                    <td title={log.regulated_user_id}>
-                      {log.regulated_user_id.slice(0, 15)}...
-                    </td>
-                    <td>
-                      {log.object_type} ({log.object_id.slice(0, 8)})
-                    </td>
-                    <td>
-                      <button 
-                        type="button" 
-                        className="badge" 
-                        style={{ background: '#f1f5f9', color: '#1e293b', border: '1px solid #cbd5e1', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
-                        onClick={() => setSelectedDetails({ id: log.event_id, data: log.detail })}
-                      >
-                        🔍 View Metadata
-                      </button>
-                    </td>
-                    <td>
-                      {log.deep_score !== null && log.deep_score !== undefined ? (
-                        <span className="badge" style={{ background: log.deep_score >= 70 ? 'rgba(239,68,68,0.2)' : log.deep_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.deep_score >= 70 ? '#ef4444' : log.deep_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.deep_reasons}>
-                          🔥 {log.deep_score} (n8n)
-                        </span>
-                      ) : (
-                        <span className="badge" style={{ background: log.lexicon_score >= 70 ? 'rgba(239,68,68,0.2)' : log.lexicon_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.lexicon_score >= 70 ? '#ef4444' : log.lexicon_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.lexicon_flag}>
-                          🏷️ {log.lexicon_score || 0} (Lexicon)
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <span 
-                        className="badge" 
-                        style={
-                          log.review_status === 'escalated' ? { background: 'rgba(239,68,68,0.2)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' } :
-                          log.review_status === 'remediated' ? { background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' } :
-                          log.review_status === 'reviewed-no-concern' ? { background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' } :
-                          { background: 'rgba(234,179,8,0.2)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)' }
-                        }
-                      >
-                        {log.review_status || 'captured'}
-                      </span>
-                    </td>
-                    <td>
-                      <button 
-                        type="button"
-                        className="btn btn-secondary" 
-                        style={{ padding: '4px 10px', fontSize: '12px' }}
-                        onClick={() => {
-                          setSelectedLogForReview(log.event_id);
-                          setReviewStatus(log.review_status || 'reviewed-no-concern');
-                          setReviewNotes(log.notes || '');
-                        }}
-                      >
-                        Triage
-                      </button>
-                    </td>
+
+          {loadingLogs ? (
+            <div className="loading">
+              <div className="loading-spinner"></div>
+              Loading audit logs...
+            </div>
+          ) : sortedLogs.length === 0 ? (
+            <div className="empty-state">
+              No audit logs found. Try adjusting filters or starting actions in Jira/Confluence.
+            </div>
+          ) : (
+            <div className="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Event Type</th>
+                    <th>Regulated User</th>
+                    <th>Object Type (ID)</th>
+                    <th>Details</th>
+                    <th>Risk Score</th>
+                    <th>Status</th>
+                    <th>Supervisory Triage</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {sortedLogs.map((log) => (
+                    <tr key={log.event_id}>
+                      <td>{new Date(Number(log.ts)).toLocaleString()}</td>
+                      <td>{getFriendlyEventName(log.event_type)}</td>
+                      <td title={log.regulated_user_id}>
+                        {log.regulated_user_id.slice(0, 15)}...
+                      </td>
+                      <td>
+                        {log.object_type} ({log.object_id.slice(0, 8)})
+                      </td>
+                      <td>
+                        <button 
+                          type="button" 
+                          className="badge" 
+                          style={{ background: '#f1f5f9', color: '#1e293b', border: '1px solid #cbd5e1', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
+                          onClick={() => setSelectedDetails({ id: log.event_id, data: log.detail })}
+                        >
+                          🔍 View Metadata
+                        </button>
+                      </td>
+                      <td>
+                        {log.deep_score !== null && log.deep_score !== undefined ? (
+                          <span className="badge" style={{ background: log.deep_score >= 70 ? 'rgba(239,68,68,0.2)' : log.deep_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.deep_score >= 70 ? '#ef4444' : log.deep_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.deep_reasons}>
+                            🔥 {log.deep_score} (n8n)
+                          </span>
+                        ) : (
+                          <span className="badge" style={{ background: log.lexicon_score >= 70 ? 'rgba(239,68,68,0.2)' : log.lexicon_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.lexicon_score >= 70 ? '#ef4444' : log.lexicon_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.lexicon_flag}>
+                            🏷️ {log.lexicon_score || 0} (Lexicon)
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span 
+                          className="badge" 
+                          style={
+                            log.review_status === 'escalated' ? { background: 'rgba(239,68,68,0.2)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' } :
+                            log.review_status === 'remediated' ? { background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' } :
+                            log.review_status === 'reviewed-no-concern' ? { background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' } :
+                            { background: 'rgba(234,179,8,0.2)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)' }
+                          }
+                        >
+                          {log.review_status || 'captured'}
+                        </span>
+                      </td>
+                      <td>
+                        <button 
+                          type="button"
+                          className="btn btn-secondary" 
+                          style={{ padding: '4px 10px', fontSize: '12px' }}
+                          onClick={() => {
+                            setSelectedLogForReview(log.event_id);
+                            setReviewStatus(log.review_status || 'reviewed-no-concern');
+                            setReviewNotes(log.notes || '');
+                          }}
+                        >
+                          Triage
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {selectedLogForReview && (
         <div className="modal-overlay" onClick={() => setSelectedLogForReview(null)}>
