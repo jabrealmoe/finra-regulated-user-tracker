@@ -31,7 +31,12 @@ export default function App() {
   // Active Game State ('pacman' | 'doomy' | null)
   const [activeGame, setActiveGame] = useState(null);
   
-  // Date filters for audit log queries
+  // Date filters for audit log queries.
+  // dateMode toggles the search shape, mirroring the MCRO "On | Range" control:
+  //   'on'    -> match a single calendar day (onDate)
+  //   'range' -> match an inclusive span between startDate and endDate
+  const [dateMode, setDateMode] = useState('on'); // 'on' | 'range'
+  const [onDate, setOnDate] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   
@@ -128,11 +133,12 @@ export default function App() {
     }
   };
 
-  const fetchLogs = async (start, end) => {
+  // Fetch logs for an explicit epoch-millisecond window. Either bound may be null
+  // (meaning "unbounded" on that side). Date -> timestamp conversion is done by the
+  // caller so the single-day vs range logic lives in one place (handleFilterLogs).
+  const fetchLogs = async (startTs = null, endTs = null) => {
     try {
       setLoadingLogs(true);
-      const startTs = start ? new Date(start).getTime() : null;
-      const endTs = end ? new Date(end).getTime() : null;
       const data = await invoke('getLogs', { startTs, endTs });
       setLogs(data || []);
     } catch (err) {
@@ -141,6 +147,12 @@ export default function App() {
       setLoadingLogs(false);
     }
   };
+
+  // Convert a 'YYYY-MM-DD' value into the start (00:00:00.000) of that local day.
+  const dayStartTs = (dateStr) => dateStr ? new Date(`${dateStr}T00:00:00`).getTime() : null;
+  // Convert a 'YYYY-MM-DD' value into the very end (23:59:59.999) of that local day,
+  // so the chosen end date is included in full rather than truncated at midnight.
+  const dayEndTs = (dateStr) => dateStr ? new Date(`${dateStr}T23:59:59.999`).getTime() : null;
 
   const handleSaveConfig = async (e) => {
     e.preventDefault();
@@ -173,13 +185,20 @@ export default function App() {
 
   const handleFilterLogs = (e) => {
     e.preventDefault();
-    fetchLogs(startDate, endDate);
+    if (dateMode === 'on') {
+      // Single day: span the full chosen calendar day [00:00:00.000 .. 23:59:59.999].
+      fetchLogs(dayStartTs(onDate), dayEndTs(onDate));
+    } else {
+      // Range: inclusive of both endpoints' full days.
+      fetchLogs(dayStartTs(startDate), dayEndTs(endDate));
+    }
   };
 
   const handleResetFilters = () => {
+    setOnDate('');
     setStartDate('');
     setEndDate('');
-    fetchLogs('', '');
+    fetchLogs();
   };
 
   // CSV Export utility
@@ -748,24 +767,68 @@ export default function App() {
           </div>
 
           <form onSubmit={handleFilterLogs} className="logs-filter-bar" style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            {/* Event Date control — segmented "On | Range" toggle mirroring MCRO Hearing Search.
+                Selecting a mode reveals only that mode's date field(s). */}
             <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>Start Date</label>
-              <input 
-                type="text" 
-                placeholder="YYYY-MM-DD" 
-                value={startDate} 
-                onChange={(e) => setStartDate(e.target.value)} 
-              />
+              <label>Event Date</label>
+              <div style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
+                {[
+                  { key: 'on', label: 'On' },
+                  { key: 'range', label: 'Range' },
+                ].map((m, i) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => setDateMode(m.key)}
+                    style={{
+                      padding: '8px 18px',
+                      border: 'none',
+                      borderLeft: i === 1 ? '1px solid var(--border-color)' : 'none',
+                      background: dateMode === m.key ? 'var(--accent-color)' : '#ffffff',
+                      color: dateMode === m.key ? '#ffffff' : 'var(--text-primary)',
+                      fontWeight: '600',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <label>End Date</label>
-              <input 
-                type="text" 
-                placeholder="YYYY-MM-DD" 
-                value={endDate} 
-                onChange={(e) => setEndDate(e.target.value)} 
-              />
-            </div>
+
+            {dateMode === 'on' ? (
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label>On Date</label>
+                <input
+                  type="date"
+                  value={onDate}
+                  onChange={(e) => setOnDate(e.target.value)}
+                />
+              </div>
+            ) : (
+              <>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    max={endDate || undefined}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>End Date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    min={startDate || undefined}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Sort Triage By</label>
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
