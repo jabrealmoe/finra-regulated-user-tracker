@@ -32,6 +32,7 @@ export default function App() {
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'pending' | 'reviewed'
   const [sortBy, setSortBy] = useState('date_desc'); // 'date_desc' | 'risk_desc'
+  const [selectedDetails, setSelectedDetails] = useState(null);
 
   // Load configuration on mount
   useEffect(() => {
@@ -795,8 +796,15 @@ export default function App() {
                     <td>
                       {log.object_type} ({log.object_id.slice(0, 8)})
                     </td>
-                    <td title={log.detail}>
-                      {log.detail}
+                    <td>
+                      <button 
+                        type="button" 
+                        className="badge" 
+                        style={{ background: '#f1f5f9', color: '#1e293b', border: '1px solid #cbd5e1', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
+                        onClick={() => setSelectedDetails({ id: log.event_id, data: log.detail })}
+                      >
+                        🔍 View Metadata
+                      </button>
                     </td>
                     <td>
                       {log.deep_score !== null && log.deep_score !== undefined ? (
@@ -882,6 +890,34 @@ export default function App() {
               >
                 {submittingReview ? 'Submitting...' : 'Submit Disposition'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedDetails && (
+        <div className="modal-overlay" onClick={() => setSelectedDetails(null)}>
+          <div className="modal-content" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '12px', fontWeight: '600', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+              Compliance Event Audit Details
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Event Instance: <code>{selectedDetails.id}</code>
+            </p>
+            <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px', maxHeight: '350px', overflowY: 'auto' }}>
+              <pre style={{ margin: 0, fontSize: '12px', color: '#0f172a', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                {(() => {
+                  try {
+                    const parsed = typeof selectedDetails.data === 'string' ? JSON.parse(selectedDetails.data) : selectedDetails.data;
+                    return JSON.stringify(parsed, null, 2);
+                  } catch (e) {
+                    return selectedDetails.data;
+                  }
+                })()}
+              </pre>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button type="button" className="btn btn-primary" style={{ background: '#4b5563', border: 'none' }} onClick={() => setSelectedDetails(null)}>Close</button>
             </div>
           </div>
         </div>
