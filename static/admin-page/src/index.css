@@ -1,17 +1,21 @@
 :root {
-  --bg-primary: #091124;
-  --bg-secondary: #0f172a;
-  --bg-card: #0f172a;
-  --text-primary: #f8fafc;
-  --text-secondary: #94a3b8;
-  --accent-color: #F2A900;
-  --accent-hover: #D99B00;
-  --border-color: #1e293b;
+  --bg-primary: #f3f4f6;       /* Warm light gray background */
+  --bg-secondary: #ffffff;     /* Clean white cards and headers */
+  --bg-card: #ffffff;
+  --text-primary: #111827;     /* High-contrast charcoal text */
+  --text-secondary: #4b5563;   /* Muted gray text */
+  --accent-color: #D52B1E;     /* Wells Fargo Red */
+  --accent-hover: #b91c1c;     /* Darker Red */
+  --border-color: #e5e7eb;     /* Light gray borders */
   --success-color: #10b981;
   --error-color: #D52B1E;
-  --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --glass-bg: rgba(15, 23, 42, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.03);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.05);
+  
+  /* Wells Fargo Gold Accent */
+  --wf-gold: #F2A900;
+  --wf-gold-hover: #D99B00;
 }
 
 * {
@@ -40,22 +44,38 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Header */
+/* Header Banner - Full Bleed Corporate Red */
 header {
   margin-bottom: 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 20px;
+  background-color: #D52B1E;
+  padding: 20px 24px;
+  margin: -24px -24px 32px -24px;
+  border-bottom: 4px solid #F2A900;
+}
+
+header p {
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+header .btn-secondary {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+}
+
+header .btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.3) !important;
 }
 
 h1 {
   font-size: 24px;
   font-weight: 700;
-  background: linear-gradient(to right, #F2A900, #D52B1E);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #ffffff !important;
+  background: none !important;
+  -webkit-text-fill-color: initial !important;
 }
 
 /* Cards & Layout */
@@ -83,15 +103,16 @@ h1 {
 
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
 h2 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   margin-bottom: 16px;
-  border-left: 4px solid var(--accent-color);
+  border-left: 4px solid var(--wf-gold);
   padding-left: 10px;
+  color: var(--text-primary);
 }
 
 /* Form inputs & controls */
@@ -101,8 +122,8 @@ h2 {
 
 label {
   display: block;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text-secondary);
   margin-bottom: 8px;
 }
@@ -110,7 +131,7 @@ label {
 input[type="text"], select, textarea {
   width: 100%;
   padding: 10px 14px;
-  background-color: #0f172a;
+  background-color: #ffffff;
   border: 1px solid var(--border-color);
   border-radius: 6px;
   color: var(--text-primary);
@@ -121,8 +142,8 @@ input[type="text"], select, textarea {
 
 input[type="text"]:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: var(--accent-color);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  border-color: var(--wf-gold);
+  box-shadow: 0 0 0 3px rgba(242, 169, 0, 0.2);
 }
 
 /* Toggles block */
@@ -275,11 +296,11 @@ table {
 }
 
 th {
-  background-color: #0f172a;
-  color: var(--text-secondary);
+  background-color: #f9fafb;
+  color: var(--text-primary);
   font-weight: 600;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 2px solid var(--border-color);
 }
 
 td {
@@ -297,7 +318,7 @@ tr:last-child td {
 }
 
 tr:hover td {
-  background-color: rgba(99, 102, 241, 0.05);
+  background-color: rgba(242, 169, 0, 0.05);
 }
 
 .badge {
