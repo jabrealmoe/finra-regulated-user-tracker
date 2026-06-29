@@ -1,7 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { invoke } from '@forge/bridge';
+import { invoke, view } from '@forge/bridge';
 import PacManGame from './components/PacManGame';
 import DoomyGame from './components/DoomyGame';
+
+function getFriendlyEventName(eventType) {
+  if (!eventType) return 'Unknown';
+  switch (eventType) {
+    case 'avi:jira:commented:issue': return 'Comment Added';
+    case 'avi:jira:mentioned:issue': return 'User Mentioned';
+    case 'avi:jira:created:attachment': return 'Attachment Uploaded';
+    case 'avi:confluence:created:comment': return 'Comment Created';
+    case 'avi:confluence:updated:comment': return 'Comment Updated';
+    case 'avi:confluence:created:page': return 'Page Created';
+    case 'avi:confluence:updated:page': return 'Page Updated';
+    case 'avi:confluence:created:attachment': return 'Attachment Added';
+    case 'confluence:reaction:created': return 'Reaction Logged';
+    default:
+      return eventType.split(':').pop() || eventType;
+  }
+}
 
 export default function App() {
   const [config, setConfigState] = useState(null);
@@ -9,6 +26,7 @@ export default function App() {
   const [loadingConfig, setLoadingConfig] = useState(true);
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message: string }
+  const [productContext, setProductContext] = useState('jira'); // 'jira' | 'confluence'
   
   // Active Game State ('pacman' | 'doomy' | null)
   const [activeGame, setActiveGame] = useState(null);
@@ -39,6 +57,22 @@ export default function App() {
     fetchConfig();
     fetchLogs();
     fetchDigests();
+    
+    // Detect context
+    if (typeof view !== 'undefined' && view.getContext) {
+      view.getContext().then(ctx => {
+        if (ctx && ctx.extension && ctx.extension.target) {
+          const targetStr = ctx.extension.target.toLowerCase();
+          const isConf = targetStr.includes('confluence') || targetStr.includes('wiki') || (ctx.moduleKey && ctx.moduleKey.includes('confluence'));
+          setProductContext(isConf ? 'confluence' : 'jira');
+        } else if (ctx && ctx.moduleKey) {
+          const isConf = ctx.moduleKey.toLowerCase().includes('confluence');
+          setProductContext(isConf ? 'confluence' : 'jira');
+        }
+      }).catch(e => {
+        console.error('Error fetching context:', e);
+      });
+    }
   }, []);
 
   const handleSubmitReview = async (eventId) => {
@@ -212,6 +246,11 @@ export default function App() {
 
   // Filter logs list based on search bar and compliance review queue filters
   const filteredLogs = logs.filter(log => {
+    // Filter by product context (Jira only inside Jira, Confluence only inside Confluence)
+    if (log.product !== productContext) {
+      return false;
+    }
+
     // 1. Review queue lifecycle filter
     const status = log.review_status || 'captured';
     if (reviewFilter === 'pending' && status !== 'captured' && status !== 'pending-review') {
@@ -255,7 +294,7 @@ export default function App() {
 
   return (
     <div className="container">
-      <header>
+      <header style={{ backgroundColor: productContext === 'confluence' ? '#F2A900' : '#D52B1E', borderBottomColor: productContext === 'confluence' ? '#D52B1E' : '#F2A900' }}>
         <div>
           <h1>Financial Industry Regulatory Authority (FINRA) Compliance &amp; Supervision Hub</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
@@ -362,118 +401,120 @@ export default function App() {
           <div className="card">
             <h2>Tracked Event Categories</h2>
             
-            <div style={{ marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '14px', color: 'var(--accent-color)', fontWeight: '600', marginBottom: '8px' }}>JIRA EVENTS</h3>
-              
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">@Mentions</span>
-                  <span className="toggle-desc">Detect mentions on issues</span>
+            {productContext === 'jira' ? (
+              <div style={{ marginBottom: '16px' }}>
+                <h3 style={{ fontSize: '14px', color: 'var(--accent-color)', fontWeight: '600', marginBottom: '8px' }}>JIRA EVENTS</h3>
+                
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">@Mentions</span>
+                    <span className="toggle-desc">Detect mentions on issues</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.jira.mentions} 
+                      onChange={() => handleCategoryToggle('jira', 'mentions')}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.jira.mentions} 
-                    onChange={() => handleCategoryToggle('jira', 'mentions')}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
 
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">Comments</span>
-                  <span className="toggle-desc">Audit comments added/updated</span>
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">Comments</span>
+                    <span className="toggle-desc">Audit comments added/updated</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.jira.comments} 
+                      onChange={() => handleCategoryToggle('jira', 'comments')}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.jira.comments} 
-                    onChange={() => handleCategoryToggle('jira', 'comments')}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
 
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">Attachments</span>
-                  <span className="toggle-desc">Log files added to issues</span>
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">Attachments</span>
+                    <span className="toggle-desc">Log files added to issues</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.jira.attachments} 
+                      onChange={() => handleCategoryToggle('jira', 'attachments')}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.jira.attachments} 
-                    onChange={() => handleCategoryToggle('jira', 'attachments')}
-                  />
-                  <span className="slider"></span>
-                </label>
               </div>
-            </div>
+            ) : (
+              <div>
+                <h3 style={{ fontSize: '14px', color: 'var(--accent-color)', fontWeight: '600', marginBottom: '8px' }}>CONFLUENCE EVENTS</h3>
+                
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">@Mentions & Pages</span>
+                    <span className="toggle-desc">Audit mentions in page edits</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.confluence.mentions} 
+                      onChange={() => handleCategoryToggle('confluence', 'mentions')}
+                    />
+                    <span className="slider"></span>
+                  </label>
+                </div>
 
-            <div>
-              <h3 style={{ fontSize: '14px', color: 'var(--accent-color)', fontWeight: '600', marginBottom: '8px' }}>CONFLUENCE EVENTS</h3>
-              
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">@Mentions & Pages</span>
-                  <span className="toggle-desc">Audit mentions in page edits</span>
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">Comments</span>
+                    <span className="toggle-desc">Audit comment creations/replies</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.confluence.comments} 
+                      onChange={() => handleCategoryToggle('confluence', 'comments')}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.confluence.mentions} 
-                    onChange={() => handleCategoryToggle('confluence', 'mentions')}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
 
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">Comments</span>
-                  <span className="toggle-desc">Audit comment creations/replies</span>
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">Attachments</span>
+                    <span className="toggle-desc">Log files added to pages</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.confluence.attachments} 
+                      onChange={() => handleCategoryToggle('confluence', 'attachments')}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.confluence.comments} 
-                    onChange={() => handleCategoryToggle('confluence', 'comments')}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
 
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">Attachments</span>
-                  <span className="toggle-desc">Log files added to pages</span>
+                <div className="toggle-row">
+                  <div className="toggle-label">
+                    <span className="toggle-title">Reactions (Reconciliation poller)</span>
+                    <span className="toggle-desc">Poll page and blogpost likes</span>
+                  </div>
+                  <label className="switch">
+                    <input 
+                      type="checkbox" 
+                      checked={config.categories.confluence.reactions} 
+                      onChange={() => handleCategoryToggle('confluence', 'reactions')}
+                    />
+                    <span className="slider"></span>
+                  </label>
                 </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.confluence.attachments} 
-                    onChange={() => handleCategoryToggle('confluence', 'attachments')}
-                  />
-                  <span className="slider"></span>
-                </label>
               </div>
-
-              <div className="toggle-row">
-                <div className="toggle-label">
-                  <span className="toggle-title">Reactions (Reconciliation poller)</span>
-                  <span className="toggle-desc">Poll page and blogpost likes</span>
-                </div>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.categories.confluence.reactions} 
-                    onChange={() => handleCategoryToggle('confluence', 'reactions')}
-                  />
-                  <span className="slider"></span>
-                </label>
-              </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -770,26 +811,20 @@ export default function App() {
               <thead>
                 <tr>
                   <th>Timestamp</th>
-                  <th>Product</th>
                   <th>Event Type</th>
                   <th>Regulated User</th>
                   <th>Object Type (ID)</th>
                   <th>Details</th>
                   <th>Risk Score</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  <th>Supervisory Triage</th>
                 </tr>
               </thead>
               <tbody>
                 {sortedLogs.map((log) => (
                   <tr key={log.event_id}>
                     <td>{new Date(Number(log.ts)).toLocaleString()}</td>
-                    <td>
-                      <span className={`badge badge-${log.product}`}>
-                        {log.product}
-                      </span>
-                    </td>
-                    <td>{log.event_type.split(':').pop() || log.event_type}</td>
+                    <td>{getFriendlyEventName(log.event_type)}</td>
                     <td title={log.regulated_user_id}>
                       {log.regulated_user_id.slice(0, 15)}...
                     </td>
@@ -841,7 +876,7 @@ export default function App() {
                           setReviewNotes(log.notes || '');
                         }}
                       >
-                        Review
+                        Triage
                       </button>
                     </td>
                   </tr>
