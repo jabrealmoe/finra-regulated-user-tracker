@@ -244,13 +244,15 @@ input:checked + .slider:before {
 }
 
 .btn-secondary {
-  background-color: #334155;
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  background-color: #ffffff;
+  color: #374151;
+  border: 1px solid #d1d5db;
 }
 
 .btn-secondary:hover {
-  background-color: #475569;
+  background-color: #f3f4f6;
+  color: #111827;
+  border-color: #cbd5e1;
 }
 
 .btn:active {

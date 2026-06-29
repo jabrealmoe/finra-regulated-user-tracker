@@ -683,7 +683,7 @@ export default function App() {
           </div>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label>Sort Triage By</label>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#1e293b', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
               <option value="date_desc">Newest First</option>
               <option value="risk_desc">⚠️ Highest Risk First</option>
             </select>
