@@ -355,10 +355,6 @@ export default function App() {
                 </small>
               </div>
             )}
-            
-            <button type="submit" className="btn btn-primary" style={{ marginTop: '8px' }}>
-              Save Configuration
-            </button>
           </div>
 
           {/* Event Category tracking toggles card */}
@@ -568,6 +564,11 @@ export default function App() {
               placeholder="e.g. insider,80,POSSIBLE_INSIDER"
               style={{ resize: 'vertical', fontFamily: 'monospace' }}
             />
+          </div>
+          <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-start' }}>
+            <button type="submit" className="btn btn-primary" style={{ padding: '12px 24px', fontSize: '15px' }}>
+              Save Configuration
+            </button>
           </div>
         </div>
       </form>
