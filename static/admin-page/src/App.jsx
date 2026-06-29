@@ -256,7 +256,7 @@ export default function App() {
     <div className="container">
       <header>
         <div>
-          <h1>FINRA Regulated User Tracker</h1>
+          <h1>Financial Industry Regulatory Authority (FINRA) Compliance &amp; Supervision Hub</h1>
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
             Compliance auditing and event monitoring for regulated accounts.
           </p>
