@@ -1,6 +1,8 @@
 # Dr. Jira FINRA Regulated User Tracker
 
-![Dr. Jira Finra](assets/wizard.png)
+<p align="center">
+  <img src=".github/images/wizard.png" alt="Dr. Jira Finra" width="280" />
+</p>
 
 ## Overview
 
@@ -27,6 +29,41 @@ graph TD
     E --> G[POST EML Webhook to n8n / Archiver]
 ```
 
+## Screenshots
+
+### Jira Admin Panel
+
+#### Tracked Event Audit Log
+View, filter, and triage captured compliance events — with per-event risk scoring via the Lexicon engine and supervisor disposition workflow.
+
+![Jira — Tracked Event Audit Log](.github/images/jira-audit-log.png)
+
+#### Webhook Configuration
+Configure the n8n webhook endpoint used to forward EML-formatted audit payloads to your compliance archiving pipeline.
+
+![Jira — Webhook Configuration](.github/images/jira-webhook-config.png)
+
+---
+
+### Confluence Admin Panel
+
+#### Tracked Event Audit Log
+The same audit log experience surfaces in Confluence, tracking @mentions, comments, attachments, and reaction polling events for regulated users.
+
+![Confluence — Tracked Event Audit Log](.github/images/confluence-audit-log.png)
+
+#### Webhook Configuration
+Confluence shares the same webhook configuration interface, targeting your n8n production webhook for EML delivery.
+
+![Confluence — Webhook Configuration](.github/images/confluence-webhook-config.png)
+
+#### Chain Integrity
+SEC Rule 17a-4 compliant tamper-evident verification — every audit record is linked via a SHA-256 hash chain. Run cryptographic verification and view sealed daily digests.
+
+![Confluence — Chain Integrity](.github/images/confluence-chain-integrity.png)
+
+---
+
 ## Setup & Deployment
 
 1. **Install Dependencies**: `npm install`
@@ -45,7 +82,9 @@ Most Jira and Confluence interactions are captured instantly via real-time webho
 
 ### 2. Scheduled Polling (Reconciliation)
 Since Confluence does not natively emit real-time webhook events for reactions (likes and unlikes), the app runs a scheduled task:
-- **Reaction Poller**: A background worker running every 5 minutes (`interval: fiveMinute`). It fetches recent pages and blog posts, pulls their active likes, and diffs them against previously stored lists in the Forge Key-Value Store (KVS) to detect new likes from regulated users.
+- **Reaction Poller**: A background worker running every 5 minutes (`interval: fiveMinute`). It detects new **likes** (the "Like" button / thumbs-up) from regulated users by diffing the current likers of each scanned content item against lists stored in the Forge Key-Value Store (KVS). The content it scans is the union of (a) recently modified pages and blog posts and (b) pages and blog posts **authored by regulated users** (resolved via CQL) — the latter ensures likes on a regulated user's older content are still caught, since liking does not update a page's modified-date.
+
+> **Scope limitation — emoji reactions are not tracked.** Confluence Cloud exposes **no public REST API for emoji reactions** (the 👍/🎉/etc. react feature), and there is no corresponding Forge scope. Only the classic **Like** button is observable via API, so only likes are audited. If/when Atlassian ships a reactions API, this poller can be extended to cover them.
 
 ---
 
