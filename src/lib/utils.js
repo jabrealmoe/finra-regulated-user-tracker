@@ -1,8 +1,10 @@
-import { asApp, route } from '@forge/api';
+import { asApp, route, webTrigger } from '@forge/api';
 import { kvs } from '@forge/kvs';
+import { syncRegulatedUserStatus, wasUserRegulatedAt } from './db';
 
 const CONFIG_KEY = 'finra_config';
 const CACHE_PREFIX = 'group_cache_';
+const IDENTITY_CACHE_PREFIX = 'user_identity_';
 
 // Default configuration settings
 const DEFAULT_CONFIG = {
@@ -10,8 +12,21 @@ const DEFAULT_CONFIG = {
   groupName: 'FINRA-Regulated',
   accountIds: '', // comma-separated list of account IDs
   ttl: 300, // cache TTL in seconds (default 5 mins)
+  // Optional map of Atlassian accountId -> FINRA CRD number. The accountId stays the
+  // stable system key; the CRD is the canonical regulatory identifier surfaced to examiners.
+  crdMap: {},
   webhookTarget: 'disabled', // 'disabled', 'test', 'prod', 'custom'
   customWebhookUrl: '',
+  n8nEnrichment: false, // toggled off by default
+  lexiconRules: [
+    { pattern: 'confidential', score: 40, flag: 'CONFIDENTIAL_KEYWORD' },
+    { pattern: 'insider', score: 80, flag: 'POSSIBLE_INSIDER' },
+    { pattern: 'leak', score: 60, flag: 'LEAK_KEYWORD' },
+    { pattern: 'don\'t share', score: 50, flag: 'RESTRICTED_SHARING' },
+    { pattern: 'private key', score: 70, flag: 'CREDENTIAL_LEAK' },
+    { pattern: 'acquisition', score: 50, flag: 'M_A_DISCUSSION' },
+    { pattern: 'undisclosed', score: 40, flag: 'UNDISCLOSED_INFO' }
+  ],
   categories: {
     jira: {
       mentions: true,
@@ -144,39 +159,7 @@ export async function getGroupMembersCached(groupName, product, ttlSeconds = 300
         }
       }
     } else {
-      // Confluence group members
-      let start = 0;
-      let limit = 200;
-      let hasMore = true;
-
-      while (hasMore) {
-        const response = await asApp().requestConfluence(
-          route`/wiki/rest/api/group/${groupName}/member?start=${start}&limit=${limit}`
-        );
-
-        if (response.status === 404) {
-          console.warn(`Confluence group ${groupName} not found.`);
-          break;
-        }
-
-        if (!response.ok) {
-          throw new Error(`Confluence API returned status ${response.status}: ${await response.text()}`);
-        }
-
-        const data = await response.json();
-        if (data.results && Array.isArray(data.results)) {
-          for (const user of data.results) {
-            if (user.accountId) {
-              members.push(user.accountId);
-            }
-          }
-        }
-
-        hasMore = data.results && data.results.length === limit;
-        if (hasMore) {
-          start += limit;
-        }
-      }
+      throw new Error(`getGroupMembersCached is only supported for Jira. Use isUserInGroupConfluence for Confluence.`);
     }
 
     // Cache the resolved list in KVS
@@ -201,38 +184,176 @@ export async function getGroupMembersCached(groupName, product, ttlSeconds = 300
 }
 
 /**
- * Checks a list of involved user account IDs and returns which ones are FINRA regulated.
- * @param {Array<string>} accountIds 
- * @param {string} product 'jira' or 'confluence'
- * @param {object} config 
- * @returns {Promise<Array<string>>} List of regulated user account IDs found.
+ * Checks if a specific Confluence user is in a given group.
+ * Uses the fully supported /wiki/rest/api/user/memberof endpoint to avoid administrative blocks.
  */
-export async function getRegulatedUsersInvolved(accountIds, product, config) {
+async function isUserInGroupConfluence(accountId, groupName, ttl) {
+  const cacheKey = `user_groups:${accountId}`;
+  const now = Date.now();
+  const ttlMs = (ttl || 300) * 1000; // default 5 minutes
+
+  try {
+    const cached = await kvs.get(cacheKey);
+    if (cached && (now - cached.fetchedAt < ttlMs)) {
+      return cached.groups.includes(groupName);
+    }
+  } catch (e) {}
+
+  try {
+    const response = await asApp().requestConfluence(
+      route`/wiki/rest/api/user/memberof?accountId=${accountId}`
+    );
+    if (!response.ok) {
+      console.error(`Failed to fetch group membership for user ${accountId}: ${response.status}`);
+      return false;
+    }
+    const data = await response.json();
+    const groups = (data.results && Array.isArray(data.results))
+      ? data.results.map(g => g.name)
+      : [];
+
+    try {
+      await kvs.set(cacheKey, {
+        groups,
+        fetchedAt: now
+      });
+    } catch (e) {}
+
+    return groups.includes(groupName);
+  } catch (err) {
+    console.error(`Error checking group membership for user ${accountId}:`, err);
+    return false;
+  }
+}
+
+export async function getRegulatedUsersInvolved(accountIds, product, config, eventTs) {
   if (!accountIds || accountIds.length === 0) return [];
   
   // Clean nulls and duplicates from input
   const uniqueIds = Array.from(new Set(accountIds.filter(id => !!id)));
   if (uniqueIds.length === 0) return [];
 
+  const groupName = config.groupName || 'FINRA-Regulated';
+  const source = config.userSource === 'list' ? 'list' : `group:${groupName}`;
+  const queryTs = eventTs || Date.now();
+
+  let currentRegulated = [];
+
   if (config.userSource === 'list') {
-    // Split comma separated list of account IDs, trim whitespace
-    const regulatedList = (config.accountIds || '')
+    currentRegulated = (config.accountIds || '')
       .split(',')
       .map(id => id.trim())
       .filter(id => id.length > 0);
-
-    return uniqueIds.filter(id => regulatedList.includes(id));
   } else {
     // Resolve group members from group name
-    const groupName = config.groupName || 'FINRA-Regulated';
-    const groupMembers = await getGroupMembersCached(groupName, product, config.ttl);
-    return uniqueIds.filter(id => groupMembers.includes(id));
+    if (product === 'confluence') {
+      for (const id of uniqueIds) {
+        const inGroup = await isUserInGroupConfluence(id, groupName, config.ttl);
+        if (inGroup) {
+          currentRegulated.push(id);
+        }
+      }
+    } else {
+      currentRegulated = await getGroupMembersCached(groupName, product, config.ttl);
+    }
   }
+
+  // Sync checked users' current status to regulated_user_history
+  for (const id of uniqueIds) {
+    const isReg = currentRegulated.includes(id);
+    await syncRegulatedUserStatus(id, isReg, source);
+  }
+
+  // Resolve point-in-time status from local history table
+  const results = [];
+  for (const id of uniqueIds) {
+    const isReg = await wasUserRegulatedAt(id, queryTs);
+    if (isReg) {
+      results.push(id);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Resolves a human-readable identity (display name + email) for an Atlassian accountId.
+ *
+ * FINRA Rule 4511 / SEC Rule 17a-4(j) require records to be producible in "legible, true,
+ * and current" form. An opaque accountId is not legible attribution, so we capture a
+ * point-in-time SNAPSHOT of the name/email at event time. Display name and email are
+ * mutable in Atlassian Cloud, so resolving them later (at view time) would break the
+ * "true and current as of the event" guarantee — they must be frozen into the audit row.
+ *
+ * The accountId remains the stable system key; this only enriches the record for examiners.
+ * @param {string} accountId
+ * @param {string} product 'jira' or 'confluence'
+ * @param {number} ttlSeconds Cache TTL in seconds
+ * @returns {Promise<{displayName: string, email: string}>}
+ */
+export async function resolveUserIdentity(accountId, product, ttlSeconds = 300) {
+  if (!accountId) return { displayName: '', email: '' };
+
+  const cacheKey = `${IDENTITY_CACHE_PREFIX}${accountId}`;
+  const now = Date.now();
+
+  try {
+    const cached = await kvs.get(cacheKey);
+    if (cached && cached.fetchedAt && now - cached.fetchedAt < ttlSeconds * 1000) {
+      return { displayName: cached.displayName || '', email: cached.email || '' };
+    }
+  } catch (e) {}
+
+  let displayName = '';
+  let email = '';
+
+  try {
+    if (product === 'confluence') {
+      const res = await asApp().requestConfluence(route`/wiki/rest/api/user?accountId=${accountId}`);
+      if (res.ok) {
+        const data = await res.json();
+        displayName = data.displayName || data.publicName || '';
+        email = data.email || '';
+      } else {
+        console.warn(`Identity lookup failed for ${accountId} (confluence): ${res.status}`);
+      }
+    } else {
+      const res = await asApp().requestJira(route`/rest/api/3/user?accountId=${accountId}`);
+      if (res.ok) {
+        const data = await res.json();
+        displayName = data.displayName || '';
+        // emailAddress is only present when the actor's profile visibility permits it.
+        email = data.emailAddress || '';
+      } else {
+        console.warn(`Identity lookup failed for ${accountId} (jira): ${res.status}`);
+      }
+    }
+
+    try {
+      await kvs.set(cacheKey, { displayName, email, fetchedAt: now });
+    } catch (e) {}
+  } catch (err) {
+    console.error(`Error resolving identity for ${accountId}:`, err);
+  }
+
+  return { displayName, email };
+}
+
+/**
+ * Looks up the FINRA CRD number for an accountId from the admin-configured map.
+ * Returns '' if no mapping exists (the app has no authoritative CRD source of its own).
+ * @param {string} accountId
+ * @param {object} config
+ * @returns {string}
+ */
+export function resolveCrd(accountId, config) {
+  if (!accountId || !config || !config.crdMap) return '';
+  return config.crdMap[accountId] || '';
 }
 
 /**
  * Formats compliance audit record data into an RFC 822 / EML formatted email string.
- * @param {object} logData 
+ * @param {object} logData
  * @returns {string} The formatted EML text.
  */
 export function generateEml(logData) {
@@ -253,7 +374,10 @@ export function generateEml(logData) {
     `Timestamp: ${new Date(logData.ts || Date.now()).toISOString()}`,
     `Product: ${logData.product}`,
     `Event Type: ${logData.eventType}`,
+    `Regulated User: ${logData.regulatedUserName || '(name unavailable)'}${logData.regulatedUserEmail ? ` <${logData.regulatedUserEmail}>` : ''}`,
     `Regulated User ID: ${logData.regulatedUserId}`,
+    `Regulated User CRD: ${logData.regulatedUserCrd || '(not mapped)'}`,
+    `Actor: ${logData.actorName || '(name unavailable)'}${logData.actorEmail ? ` <${logData.actorEmail}>` : ''}`,
     `Actor ID: ${logData.actorId}`,
     `Object Type: ${logData.objectType}`,
     `Object ID: ${logData.objectId}`,
@@ -310,4 +434,121 @@ export async function sendWebhookIfConfigured(logData) {
   } catch (error) {
     console.error('Failed to send compliance webhook:', error);
   }
+}
+
+/**
+ * Evaluates text content against lexicon rules.
+ * @param {string} text 
+ * @param {Array} rules 
+ * @returns {object} { score: number, flag: string | null }
+ */
+export function evaluateLexicon(text, rules) {
+  if (!text || !rules || !Array.isArray(rules)) {
+    return { score: 0, flag: null };
+  }
+
+  let maxScore = 0;
+  let matchedFlag = null;
+
+  for (const rule of rules) {
+    try {
+      const regex = new RegExp(rule.pattern, 'i');
+      if (regex.test(text)) {
+        if (rule.score > maxScore) {
+          maxScore = rule.score;
+          matchedFlag = rule.flag;
+        }
+      }
+    } catch (e) {
+      console.warn(`Invalid regex pattern in lexicon rule: ${rule.pattern}`, e);
+    }
+  }
+
+  return { score: maxScore, flag: matchedFlag };
+}
+
+/**
+ * Dispatches the event payload asynchronously to the external n8n scoring engine.
+ * Includes a signed shared secret header and dynamically resolved callback URL.
+ * @param {object} logData 
+ */
+export async function dispatchN8nEnrichment(logData) {
+  try {
+    const config = await getConfig();
+    if (!config.n8nEnrichment) {
+      console.log('n8n enrichment is disabled in config. Skipping dispatch.');
+      return;
+    }
+
+    let url = '';
+    if (config.webhookTarget === 'test') {
+      url = 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5';
+    } else if (config.webhookTarget === 'prod') {
+      url = 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5';
+    } else if (config.webhookTarget === 'custom') {
+      url = config.customWebhookUrl;
+    }
+
+    if (!url) {
+      console.warn('n8n enrichment target URL is empty.');
+      return;
+    }
+
+    // Resolve callback URL dynamically
+    const callbackUrl = await webTrigger.getUrl('n8n-callback-trigger');
+    const secret = process.env.N8N_SHARED_SECRET || 'fallback-secret';
+
+    const payload = {
+      event: logData,
+      callbackUrl: callbackUrl
+    };
+
+    console.log(`Dispatching asynchronous risk scoring to n8n: ${url}`);
+    
+    // We launch fetch asynchronously (non-blocking)
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${secret}`
+      },
+      body: JSON.stringify(payload)
+    }).then(async (res) => {
+      if (!res.ok) {
+        console.error(`n8n enrichment dispatch failed: status ${res.status}`);
+      } else {
+        console.log('n8n enrichment dispatched successfully.');
+      }
+    }).catch((err) => {
+      console.error('Error during n8n enrichment dispatch:', err);
+    });
+
+  } catch (error) {
+    console.error('Failed to initiate n8n enrichment dispatch:', error);
+  }
+}
+
+/**
+ * Extracts plain text from an Atlassian Document Format (ADF) object.
+ * @param {object} adf 
+ * @returns {string} Plain text content
+ */
+export function extractTextFromAdf(adf) {
+  if (!adf) return '';
+  if (typeof adf === 'string') return adf;
+  
+  let text = '';
+  function walk(node) {
+    if (!node) return;
+    if (node.type === 'text' && node.text) {
+      text += ' ' + node.text;
+    }
+    if (node.content && Array.isArray(node.content)) {
+      for (const child of node.content) {
+        walk(child);
+      }
+    }
+  }
+  walk(adf);
+  return text.trim();
 }

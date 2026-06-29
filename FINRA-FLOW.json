@@ -1,0 +1,124 @@
+{
+  "name": "FINRA-FLOW",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "9fd48593-a44d-4b28-bfb5-143c1aa99af5",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9d9ee349-df61-48c0-a663-afaed9e2e39e",
+      "name": "Webhook",
+      "webhookId": "9fd48593-a44d-4b28-bfb5-143c1aa99af5"
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20240620",
+        "prompt": "=You are a compliance risk scoring agent. Analyze this Jira/Confluence event text for FINRA and SEC compliance risks (such as insider trading keywords, sharing credential private keys, or undisclosed M&A discussion leaks).\n\nEvent Context:\nProduct: {{ $json.body.event.product }}\nType: {{ $json.body.event.eventType }}\nDetails: {{ JSON.stringify($json.body.event.detail) }}\n\nReturn your analysis in raw JSON matching the following schema exactly (do not output any conversational filler):\n{\n  \"score\": <integer risk score from 0 to 100>,\n  \"reasons\": [<array of strings explaining the score rules matched>]\n}",
+        "options": {
+          "responseFormat": "json"
+        }
+      },
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [
+        250,
+        0
+      ],
+      "id": "claude-scorer",
+      "name": "Claude Risk Classifier",
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api-credential-id",
+          "name": "Anthropic API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const responseText = items[0].json.text;\nlet parsed = { score: 0, reasons: [\"Failed to parse model response\"] };\ntry {\n  parsed = JSON.parse(responseText);\n} catch (e) {\n  console.error('Error parsing Claude response JSON:', e);\n}\n\nreturn {\n  score: parsed.score || 0,\n  reasons: parsed.reasons || [],\n  eventId: $('Webhook').item.json.body.event.eventId,\n  callbackUrl: $('Webhook').item.json.body.callbackUrl\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "id": "parse-claude-output",
+      "name": "Parse Claude Output"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callbackUrl }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"eventId\": \"{{ $json.eventId }}\",\n  \"score\": {{ $json.score }},\n  \"reasons\": {{ JSON.stringify($json.reasons) }},\n  \"engine_version\": \"n8n-claude-v1\",\n  \"ruleset_or_model_version\": \"claude-3-5-sonnet\",\n  \"scored_at\": {{ Date.now() }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        750,
+        0
+      ],
+      "id": "callback-node",
+      "name": "HTTP Request Callback"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Claude Risk Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Risk Classifier": {
+      "main": [
+        [
+          {
+            "node": "Parse Claude Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Claude Output": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "7c517c59-0014-481a-9908-c8c318191281",
+  "meta": {
+    "instanceId": "e55fc74b8ed7503a89c96c51781830c0e8ef1e215329957fd97981600c2268cb"
+  },
+  "nodeGroups": [],
+  "id": "UYD1g8IJEKSDLfli",
+  "tags": []
+}

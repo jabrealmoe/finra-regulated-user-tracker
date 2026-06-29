@@ -1,16 +1,24 @@
 import Resolver from '@forge/resolver';
 import { asApp, route } from '@forge/api';
 import { 
-  getConfig, 
-  getRegulatedUsersInvolved, 
+  getConfig,
+  getRegulatedUsersInvolved,
   walkAdfForMentions,
-  sendWebhookIfConfigured
+  sendWebhookIfConfigured,
+  evaluateLexicon,
+  dispatchN8nEnrichment,
+  extractTextFromAdf,
+  resolveUserIdentity,
+  resolveCrd
 } from './lib/utils';
 import { 
   insertAuditLog, 
   isDuplicateEvent, 
-  getAuditLogs 
+  getAuditLogs,
+  insertRiskScore
 } from './lib/db';
+
+import sql from '@forge/sql';
 
 const resolver = new Resolver();
 
@@ -32,7 +40,38 @@ resolver.define('setConfig', async ({ payload }) => {
 
 resolver.define('getLogs', async ({ payload }) => {
   const { startTs, endTs } = payload || {};
-  return await getAuditLogs(startTs, endTs);
+  const logs = await getAuditLogs(startTs, endTs);
+  console.log(`[getLogs] Fetched ${logs.length} logs from DB.`);
+  return logs;
+});
+
+resolver.define('verifyChain', async () => {
+  const { verifyAuditChain } = require('./lib/db');
+  return await verifyAuditChain();
+});
+
+resolver.define('getDailyDigests', async () => {
+  try {
+    const result = await sql
+      .prepare(`SELECT * FROM daily_digests ORDER BY anchored_at DESC LIMIT 30`)
+      .execute();
+    return result.rows || [];
+  } catch (error) {
+    console.error('[resolver:getDailyDigests] Error:', error);
+    return [];
+  }
+});
+
+resolver.define('submitReview', async ({ payload, context }) => {
+  const { eventId, status, notes } = payload;
+  const { insertComplianceReview } = require('./lib/db');
+  const reviewerId = context.accountId || 'system-admin';
+  return await insertComplianceReview({
+    eventId,
+    status,
+    reviewerId,
+    notes
+  });
 });
 
 export const resolve = resolver.getDefinitions();
@@ -171,31 +210,60 @@ export async function handleJiraEvent(event, context) {
     }
 
     // 4. Run isRegulatedInvolved predicate
-    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'jira', config);
+    const eventTs = event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now();
+    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'jira', config, eventTs);
     
     // 5. If true, write one idempotent audit row
     if (regulatedInvolved.length > 0) {
       console.log(`FINRA Regulated users involved in Jira event: ${regulatedInvolved.join(', ')}`);
       
+      // Determine text content to scan against lexicon rules
+      let textToScan = '';
+      if (event.eventType === 'avi:jira:commented:issue' && typeof bodyAdf !== 'undefined') {
+        textToScan = extractTextFromAdf(bodyAdf);
+      } else if (event.eventType === 'avi:jira:mentioned:issue' && typeof descriptionAdf !== 'undefined') {
+        textToScan = (detail.summary || '') + ' ' + extractTextFromAdf(descriptionAdf);
+      } else if (event.eventType === 'avi:jira:created:attachment' && typeof attachmentData !== 'undefined') {
+        textToScan = attachmentData.filename || '';
+      }
+
+      const lexiconResult = evaluateLexicon(textToScan, config.lexiconRules || []);
+      const lexiconScore = lexiconResult.score;
+      const lexiconFlag = lexiconResult.flag;
+
+      // Resolve the actor identity once (shared across all regulated users on this event)
+      const actorIdentity = await resolveUserIdentity(actorId, 'jira', config.ttl);
+
       // Log for each unique regulated user involved (usually 1, but handles multiple)
       for (const regUserId of regulatedInvolved) {
+        // Snapshot the regulated user's legible identity at event time (FINRA 4511 / 17a-4(j)).
+        const regIdentity = await resolveUserIdentity(regUserId, 'jira', config.ttl);
         const logData = {
           eventId: `${eventId}:${regUserId}`,
-          ts: event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now(),
+          ts: eventTs,
           product: 'jira',
           eventType: event.eventType,
           regulatedUserId: regUserId,
+          regulatedUserName: regIdentity.displayName,
+          regulatedUserEmail: regIdentity.email,
+          regulatedUserCrd: resolveCrd(regUserId, config),
           actorId: actorId,
+          actorName: actorIdentity.displayName,
+          actorEmail: actorIdentity.email,
           objectType: objectType,
           objectId: objectId,
           containerId: containerId,
           detail: {
             ...detail,
             involvedCount: regulatedInvolved.length
-          }
+          },
+          isRegulated: true,
+          lexiconScore,
+          lexiconFlag
         };
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
+        await dispatchN8nEnrichment(logData);
       }
     } else {
       console.log(`No FINRA regulated users involved in Jira event: ${event.eventType}. Skipping database insert and webhook.`);
@@ -336,30 +404,66 @@ export async function handleConfluenceEvent(event, context) {
     }
 
     // 4. Run isRegulatedInvolved predicate
-    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'confluence', config);
-
+    const eventTs = event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now();
+    const regulatedInvolved = await getRegulatedUsersInvolved(involvedUserIds, 'confluence', config, eventTs);
+ 
     // 5. If true, write one idempotent audit row
     if (regulatedInvolved.length > 0) {
       console.log(`FINRA Regulated users involved in Confluence event: ${regulatedInvolved.join(', ')}`);
       
+      // Determine text content to scan against lexicon rules
+      let textToScan = '';
+      if (event.eventType.includes('comment') && typeof adfStr !== 'undefined' && adfStr) {
+        try {
+          textToScan = extractTextFromAdf(JSON.parse(adfStr));
+        } catch (e) {}
+      } else if (event.eventType.includes('page') && typeof pageData !== 'undefined') {
+        let pageBodyText = '';
+        if (typeof adfStr !== 'undefined' && adfStr) {
+          try {
+            pageBodyText = extractTextFromAdf(JSON.parse(adfStr));
+          } catch (e) {}
+        }
+        textToScan = (pageData.title || '') + ' ' + pageBodyText;
+      } else if (event.eventType.includes('attachment') && typeof attData !== 'undefined') {
+        textToScan = attData.title || '';
+      }
+
+      const lexiconResult = evaluateLexicon(textToScan, config.lexiconRules || []);
+      const lexiconScore = lexiconResult.score;
+      const lexiconFlag = lexiconResult.flag;
+
+      const actorIdentity = await resolveUserIdentity(actorId, 'confluence', config.ttl);
+
       for (const regUserId of regulatedInvolved) {
+        // Snapshot the regulated user's legible identity at event time (FINRA 4511 / 17a-4(j)).
+        const regIdentity = await resolveUserIdentity(regUserId, 'confluence', config.ttl);
         const logData = {
           eventId: `${eventId}:${regUserId}`,
-          ts: event.eventCreatedDate ? new Date(event.eventCreatedDate).getTime() : Date.now(),
+          ts: eventTs,
           product: 'confluence',
           eventType: event.eventType,
           regulatedUserId: regUserId,
+          regulatedUserName: regIdentity.displayName,
+          regulatedUserEmail: regIdentity.email,
+          regulatedUserCrd: resolveCrd(regUserId, config),
           actorId: actorId,
+          actorName: actorIdentity.displayName,
+          actorEmail: actorIdentity.email,
           objectType: objectType,
           objectId: objectId,
           containerId: containerId,
           detail: {
             ...detail,
             involvedCount: regulatedInvolved.length
-          }
+          },
+          isRegulated: true,
+          lexiconScore,
+          lexiconFlag
         };
         await insertAuditLog(logData);
         await sendWebhookIfConfigured(logData);
+        await dispatchN8nEnrichment(logData);
       }
     } else {
       console.log(`No FINRA regulated users involved in Confluence event: ${event.eventType}. Skipping database insert and webhook.`);
@@ -441,13 +545,20 @@ export async function pollReactions(event, context) {
               
               // Prevent duplicate insertion
               if (!(await isDuplicateEvent(eventId))) {
+                const regIdentity = await resolveUserIdentity(regUserId, 'confluence', config.ttl);
+                const actorIdentity = await resolveUserIdentity(likerId, 'confluence', config.ttl);
                 const logData = {
                   eventId,
                   ts: Date.now(),
                   product: 'confluence',
                   eventType: 'confluence:reaction:created',
                   regulatedUserId: regUserId,
+                  regulatedUserName: regIdentity.displayName,
+                  regulatedUserEmail: regIdentity.email,
+                  regulatedUserCrd: resolveCrd(regUserId, config),
                   actorId: likerId,
+                  actorName: actorIdentity.displayName,
+                  actorEmail: actorIdentity.email,
                   objectType: type,
                   objectId: contentId,
                   containerId: item.spaceId || '',
@@ -473,5 +584,112 @@ export async function pollReactions(event, context) {
     console.log('Reaction poll reconciliation completed.');
   } catch (error) {
     console.error('Error during scheduled reaction polling:', error);
+  }
+}
+
+/**
+ * Scheduled daily digest generator.
+ * Runs once a day, validates the entire audit hash chain, and seals/anchors the head
+ * in the database and Forge KVS.
+ */
+export async function generateDailyDigest(event, context) {
+  console.log('Running daily digest compliance anchoring worker...');
+  try {
+    const { verifyAuditChain, computeHash } = require('./lib/db');
+    const { kvs } = require('@forge/kvs');
+
+    const verification = await verifyAuditChain();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Compute cryptographic signature to prevent tampering of KVS record
+    const payload = `${todayStr}:${verification.headHash}:${verification.verified}`;
+    const signature = computeHash(payload + 'INTERNAL_SEC_17A4_SALT');
+
+    const digestRecord = {
+      date_str: todayStr,
+      hash_chain_head: verification.headHash || '0'.repeat(64),
+      anchored_at: Date.now(),
+      verification_status: verification.verified ? 'verified' : 'failed',
+      signature
+    };
+
+    // 1. Anchor in Forge SQL daily_digests
+    await sql
+      .prepare(`
+        INSERT INTO daily_digests (date_str, hash_chain_head, anchored_at, verification_status)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE hash_chain_head = ?, anchored_at = ?, verification_status = ?
+      `)
+      .bindParams(
+        digestRecord.date_str,
+        digestRecord.hash_chain_head,
+        digestRecord.anchored_at,
+        digestRecord.verification_status,
+        digestRecord.hash_chain_head,
+        digestRecord.anchored_at,
+        digestRecord.verification_status
+      )
+      .execute();
+
+    // 2. Anchor in separate KVS namespace daily_digest_anchor
+    await kvs.set(`daily_digest_anchor:${todayStr}`, digestRecord);
+    console.log(`Daily digest anchored successfully for ${todayStr}. Verified: ${verification.verified}, Head Hash: ${digestRecord.hash_chain_head}`);
+  } catch (error) {
+    console.error('Failed to run daily digest anchoring:', error);
+  }
+}
+
+/**
+ * Secure webtrigger endpoint callback for n8n.
+ * Authenticates incoming POST requests and appends a chained deep risk score.
+ */
+export async function handleN8nCallback(req) {
+  console.log('Received callback webtrigger from n8n');
+  try {
+    const signatureHeader = req.headers['authorization'] || '';
+    const secret = process.env.N8N_SHARED_SECRET || 'fallback-secret';
+    
+    if (!signatureHeader.includes(secret)) {
+      console.warn('Unauthorized webtrigger call. Secret signature mismatch.');
+      return {
+        status: 401,
+        body: JSON.stringify({ error: 'Unauthorized. Secret mismatch.' }),
+        headers: { 'Content-Type': ['application/json'] }
+      };
+    }
+
+    const payload = JSON.parse(req.body);
+    const { eventId, score, reasons, engine_version, ruleset_or_model_version, scored_at } = payload;
+
+    if (!eventId || score === undefined) {
+      return {
+        status: 400,
+        body: JSON.stringify({ error: 'Bad Request. Missing required eventId or score.' }),
+        headers: { 'Content-Type': ['application/json'] }
+      };
+    }
+
+    await insertRiskScore({
+      eventId,
+      score,
+      reasons,
+      engineVersion: engine_version || 'n8n-deep-v1',
+      rulesetOrModelVersion: ruleset_or_model_version || 'finra-llm-classifier-v2.1',
+      scoredAt: scored_at || Date.now()
+    });
+
+    console.log(`Successfully stored deep score for event ${eventId}: ${score}`);
+    return {
+      status: 200,
+      body: JSON.stringify({ success: true }),
+      headers: { 'Content-Type': ['application/json'] }
+    };
+  } catch (error) {
+    console.error('Failed to handle n8n callback:', error);
+    return {
+      status: 500,
+      body: JSON.stringify({ error: error.message }),
+      headers: { 'Content-Type': ['application/json'] }
+    };
   }
 }
