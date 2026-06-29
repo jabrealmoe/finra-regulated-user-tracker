@@ -296,7 +296,7 @@ export default function App() {
         <div className="grid">
           {/* User source selection card */}
           <div className="card">
-            <h2>Regulated User Source</h2>
+            <h2>Regulated Users Supervisor</h2>
             
             <div className="form-group">
               <label>Definition Method</label>
