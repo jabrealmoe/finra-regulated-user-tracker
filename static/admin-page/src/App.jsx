@@ -806,7 +806,7 @@ export default function App() {
             No audit logs found. Try adjusting filters or starting actions in Jira/Confluence.
           </div>
         ) : (
-          <div className="table-container" style={{ overflow: 'visible' }}>
+          <div className="table-container">
             <table>
               <thead>
                 <tr>
