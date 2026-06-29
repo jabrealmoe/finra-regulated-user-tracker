@@ -1,17 +1,17 @@
 :root {
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-card: #1e293b;
+  --bg-primary: #091124;
+  --bg-secondary: #0f172a;
+  --bg-card: #0f172a;
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
-  --accent-color: #6366f1;
-  --accent-hover: #4f46e5;
-  --border-color: #334155;
+  --accent-color: #F2A900;
+  --accent-hover: #D99B00;
+  --border-color: #1e293b;
   --success-color: #10b981;
-  --error-color: #ef4444;
+  --error-color: #D52B1E;
   --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-  --glass-bg: rgba(30, 41, 59, 0.7);
-  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-bg: rgba(15, 23, 42, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.03);
 }
 
 * {
@@ -53,7 +53,7 @@ header {
 h1 {
   font-size: 24px;
   font-weight: 700;
-  background: linear-gradient(to right, #818cf8, #c084fc);
+  background: linear-gradient(to right, #F2A900, #D52B1E);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
