@@ -821,54 +821,19 @@ export default function App() {
                         {log.review_status || 'captured'}
                       </span>
                     </td>
-                    <td style={{ position: 'relative' }}>
-                      {selectedLogForReview === log.event_id ? (
-                        <div style={{ background: '#1e293b', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '16px', position: 'absolute', right: '10px', top: '100%', zIndex: 100, width: '320px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.8)' }}>
-                          <h4 style={{ fontSize: '13px', color: 'var(--text-primary)', marginBottom: '8px' }}>Log Triage Disposition</h4>
-                          <div className="form-group">
-                            <label>Status</label>
-                            <select value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
-                              <option value="reviewed-no-concern">Reviewed (No Concern)</option>
-                              <option value="escalated">Escalated</option>
-                              <option value="remediated">Remediated</option>
-                            </select>
-                          </div>
-                          <div className="form-group">
-                            <label>Notes</label>
-                            <textarea 
-                              value={reviewNotes} 
-                              onChange={(e) => setReviewNotes(e.target.value)} 
-                              placeholder="Describe disposition actions..."
-                              rows={3}
-                            />
-                          </div>
-                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button type="button" className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => setSelectedLogForReview(null)}>Cancel</button>
-                            <button 
-                              type="button"
-                              className="btn btn-primary" 
-                              style={{ padding: '6px 12px', fontSize: '12px', background: '#3b82f6', border: 'none' }}
-                              onClick={() => handleSubmitReview(log.event_id)}
-                              disabled={submittingReview}
-                            >
-                              Submit
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button 
-                          type="button"
-                          className="btn btn-secondary" 
-                          style={{ padding: '4px 10px', fontSize: '12px' }}
-                          onClick={() => {
-                            setSelectedLogForReview(log.event_id);
-                            setReviewStatus(log.review_status || 'reviewed-no-concern');
-                            setReviewNotes(log.notes || '');
-                          }}
-                        >
-                          Review
-                        </button>
-                      )}
+                    <td>
+                      <button 
+                        type="button"
+                        className="btn btn-secondary" 
+                        style={{ padding: '4px 10px', fontSize: '12px' }}
+                        onClick={() => {
+                          setSelectedLogForReview(log.event_id);
+                          setReviewStatus(log.review_status || 'reviewed-no-concern');
+                          setReviewNotes(log.notes || '');
+                        }}
+                      >
+                        Review
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -877,6 +842,49 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {selectedLogForReview && (
+        <div className="modal-overlay" onClick={() => setSelectedLogForReview(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '12px', fontWeight: '600', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+              Log Triage Disposition
+            </h3>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', wordBreak: 'break-all' }}>
+              Event ID: <code>{selectedLogForReview}</code>
+            </p>
+            <div className="form-group">
+              <label>Status</label>
+              <select value={reviewStatus} onChange={(e) => setReviewStatus(e.target.value)}>
+                <option value="reviewed-no-concern">Reviewed (No Concern)</option>
+                <option value="escalated">Escalated</option>
+                <option value="remediated">Remediated</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Notes</label>
+              <textarea 
+                value={reviewNotes} 
+                onChange={(e) => setReviewNotes(e.target.value)} 
+                placeholder="Describe disposition actions..."
+                rows={4}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setSelectedLogForReview(null)}>Cancel</button>
+              <button 
+                type="button"
+                className="btn btn-primary" 
+                style={{ background: '#3b82f6', border: 'none' }}
+                onClick={() => handleSubmitReview(selectedLogForReview)}
+                disabled={submittingReview}
+              >
+                {submittingReview ? 'Submitting...' : 'Submit Disposition'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
