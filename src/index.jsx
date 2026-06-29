@@ -1,13 +1,15 @@
 import Resolver from '@forge/resolver';
 import { asApp, route } from '@forge/api';
 import { 
-  getConfig, 
-  getRegulatedUsersInvolved, 
+  getConfig,
+  getRegulatedUsersInvolved,
   walkAdfForMentions,
   sendWebhookIfConfigured,
   evaluateLexicon,
   dispatchN8nEnrichment,
-  extractTextFromAdf
+  extractTextFromAdf,
+  resolveUserIdentity,
+  resolveCrd
 } from './lib/utils';
 import { 
   insertAuditLog, 
@@ -229,15 +231,25 @@ export async function handleJiraEvent(event, context) {
       const lexiconScore = lexiconResult.score;
       const lexiconFlag = lexiconResult.flag;
 
+      // Resolve the actor identity once (shared across all regulated users on this event)
+      const actorIdentity = await resolveUserIdentity(actorId, 'jira', config.ttl);
+
       // Log for each unique regulated user involved (usually 1, but handles multiple)
       for (const regUserId of regulatedInvolved) {
+        // Snapshot the regulated user's legible identity at event time (FINRA 4511 / 17a-4(j)).
+        const regIdentity = await resolveUserIdentity(regUserId, 'jira', config.ttl);
         const logData = {
           eventId: `${eventId}:${regUserId}`,
           ts: eventTs,
           product: 'jira',
           eventType: event.eventType,
           regulatedUserId: regUserId,
+          regulatedUserName: regIdentity.displayName,
+          regulatedUserEmail: regIdentity.email,
+          regulatedUserCrd: resolveCrd(regUserId, config),
           actorId: actorId,
+          actorName: actorIdentity.displayName,
+          actorEmail: actorIdentity.email,
           objectType: objectType,
           objectId: objectId,
           containerId: containerId,
@@ -421,14 +433,23 @@ export async function handleConfluenceEvent(event, context) {
       const lexiconScore = lexiconResult.score;
       const lexiconFlag = lexiconResult.flag;
 
+      const actorIdentity = await resolveUserIdentity(actorId, 'confluence', config.ttl);
+
       for (const regUserId of regulatedInvolved) {
+        // Snapshot the regulated user's legible identity at event time (FINRA 4511 / 17a-4(j)).
+        const regIdentity = await resolveUserIdentity(regUserId, 'confluence', config.ttl);
         const logData = {
           eventId: `${eventId}:${regUserId}`,
           ts: eventTs,
           product: 'confluence',
           eventType: event.eventType,
           regulatedUserId: regUserId,
+          regulatedUserName: regIdentity.displayName,
+          regulatedUserEmail: regIdentity.email,
+          regulatedUserCrd: resolveCrd(regUserId, config),
           actorId: actorId,
+          actorName: actorIdentity.displayName,
+          actorEmail: actorIdentity.email,
           objectType: objectType,
           objectId: objectId,
           containerId: containerId,
@@ -524,13 +545,20 @@ export async function pollReactions(event, context) {
               
               // Prevent duplicate insertion
               if (!(await isDuplicateEvent(eventId))) {
+                const regIdentity = await resolveUserIdentity(regUserId, 'confluence', config.ttl);
+                const actorIdentity = await resolveUserIdentity(likerId, 'confluence', config.ttl);
                 const logData = {
                   eventId,
                   ts: Date.now(),
                   product: 'confluence',
                   eventType: 'confluence:reaction:created',
                   regulatedUserId: regUserId,
+                  regulatedUserName: regIdentity.displayName,
+                  regulatedUserEmail: regIdentity.email,
+                  regulatedUserCrd: resolveCrd(regUserId, config),
                   actorId: likerId,
+                  actorName: actorIdentity.displayName,
+                  actorEmail: actorIdentity.email,
                   objectType: type,
                   objectId: contentId,
                   containerId: item.spaceId || '',

@@ -4,6 +4,7 @@ import { syncRegulatedUserStatus, wasUserRegulatedAt } from './db';
 
 const CONFIG_KEY = 'finra_config';
 const CACHE_PREFIX = 'group_cache_';
+const IDENTITY_CACHE_PREFIX = 'user_identity_';
 
 // Default configuration settings
 const DEFAULT_CONFIG = {
@@ -11,6 +12,9 @@ const DEFAULT_CONFIG = {
   groupName: 'FINRA-Regulated',
   accountIds: '', // comma-separated list of account IDs
   ttl: 300, // cache TTL in seconds (default 5 mins)
+  // Optional map of Atlassian accountId -> FINRA CRD number. The accountId stays the
+  // stable system key; the CRD is the canonical regulatory identifier surfaced to examiners.
+  crdMap: {},
   webhookTarget: 'disabled', // 'disabled', 'test', 'prod', 'custom'
   customWebhookUrl: '',
   n8nEnrichment: false, // toggled off by default
@@ -273,8 +277,83 @@ export async function getRegulatedUsersInvolved(accountIds, product, config, eve
 }
 
 /**
+ * Resolves a human-readable identity (display name + email) for an Atlassian accountId.
+ *
+ * FINRA Rule 4511 / SEC Rule 17a-4(j) require records to be producible in "legible, true,
+ * and current" form. An opaque accountId is not legible attribution, so we capture a
+ * point-in-time SNAPSHOT of the name/email at event time. Display name and email are
+ * mutable in Atlassian Cloud, so resolving them later (at view time) would break the
+ * "true and current as of the event" guarantee — they must be frozen into the audit row.
+ *
+ * The accountId remains the stable system key; this only enriches the record for examiners.
+ * @param {string} accountId
+ * @param {string} product 'jira' or 'confluence'
+ * @param {number} ttlSeconds Cache TTL in seconds
+ * @returns {Promise<{displayName: string, email: string}>}
+ */
+export async function resolveUserIdentity(accountId, product, ttlSeconds = 300) {
+  if (!accountId) return { displayName: '', email: '' };
+
+  const cacheKey = `${IDENTITY_CACHE_PREFIX}${accountId}`;
+  const now = Date.now();
+
+  try {
+    const cached = await kvs.get(cacheKey);
+    if (cached && cached.fetchedAt && now - cached.fetchedAt < ttlSeconds * 1000) {
+      return { displayName: cached.displayName || '', email: cached.email || '' };
+    }
+  } catch (e) {}
+
+  let displayName = '';
+  let email = '';
+
+  try {
+    if (product === 'confluence') {
+      const res = await asApp().requestConfluence(route`/wiki/rest/api/user?accountId=${accountId}`);
+      if (res.ok) {
+        const data = await res.json();
+        displayName = data.displayName || data.publicName || '';
+        email = data.email || '';
+      } else {
+        console.warn(`Identity lookup failed for ${accountId} (confluence): ${res.status}`);
+      }
+    } else {
+      const res = await asApp().requestJira(route`/rest/api/3/user?accountId=${accountId}`);
+      if (res.ok) {
+        const data = await res.json();
+        displayName = data.displayName || '';
+        // emailAddress is only present when the actor's profile visibility permits it.
+        email = data.emailAddress || '';
+      } else {
+        console.warn(`Identity lookup failed for ${accountId} (jira): ${res.status}`);
+      }
+    }
+
+    try {
+      await kvs.set(cacheKey, { displayName, email, fetchedAt: now });
+    } catch (e) {}
+  } catch (err) {
+    console.error(`Error resolving identity for ${accountId}:`, err);
+  }
+
+  return { displayName, email };
+}
+
+/**
+ * Looks up the FINRA CRD number for an accountId from the admin-configured map.
+ * Returns '' if no mapping exists (the app has no authoritative CRD source of its own).
+ * @param {string} accountId
+ * @param {object} config
+ * @returns {string}
+ */
+export function resolveCrd(accountId, config) {
+  if (!accountId || !config || !config.crdMap) return '';
+  return config.crdMap[accountId] || '';
+}
+
+/**
  * Formats compliance audit record data into an RFC 822 / EML formatted email string.
- * @param {object} logData 
+ * @param {object} logData
  * @returns {string} The formatted EML text.
  */
 export function generateEml(logData) {
@@ -295,7 +374,10 @@ export function generateEml(logData) {
     `Timestamp: ${new Date(logData.ts || Date.now()).toISOString()}`,
     `Product: ${logData.product}`,
     `Event Type: ${logData.eventType}`,
+    `Regulated User: ${logData.regulatedUserName || '(name unavailable)'}${logData.regulatedUserEmail ? ` <${logData.regulatedUserEmail}>` : ''}`,
     `Regulated User ID: ${logData.regulatedUserId}`,
+    `Regulated User CRD: ${logData.regulatedUserCrd || '(not mapped)'}`,
+    `Actor: ${logData.actorName || '(name unavailable)'}${logData.actorEmail ? ` <${logData.actorEmail}>` : ''}`,
     `Actor ID: ${logData.actorId}`,
     `Object Type: ${logData.objectType}`,
     `Object ID: ${logData.objectId}`,

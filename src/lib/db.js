@@ -75,6 +75,14 @@ const migrations = migrationRunner
   `)
   .enqueue('v009_add_lexicon_columns_to_audit_logs', `
     ALTER TABLE audit_logs ADD COLUMN lexicon_score INT DEFAULT 0, ADD COLUMN lexicon_flag VARCHAR(255)
+  `)
+  .enqueue('v010_add_identity_snapshot_columns', `
+    ALTER TABLE audit_logs
+      ADD COLUMN regulated_user_name VARCHAR(255),
+      ADD COLUMN regulated_user_email VARCHAR(255),
+      ADD COLUMN regulated_user_crd VARCHAR(20),
+      ADD COLUMN actor_name VARCHAR(255),
+      ADD COLUMN actor_email VARCHAR(255)
   `);
 
 /**
@@ -173,7 +181,12 @@ export async function insertAuditLog({
   product,
   eventType,
   regulatedUserId,
+  regulatedUserName = '',
+  regulatedUserEmail = '',
+  regulatedUserCrd = '',
   actorId,
+  actorName = '',
+  actorEmail = '',
   objectType,
   objectId,
   containerId,
@@ -202,7 +215,12 @@ export async function insertAuditLog({
       product,
       event_type: eventType,
       regulated_user_id: regulatedUserId,
+      regulated_user_name: regulatedUserName || '',
+      regulated_user_email: regulatedUserEmail || '',
+      regulated_user_crd: regulatedUserCrd || '',
       actor_id: actorId,
+      actor_name: actorName || '',
+      actor_email: actorEmail || '',
       object_type: objectType,
       object_id: objectId,
       container_id: containerId,
@@ -219,8 +237,8 @@ export async function insertAuditLog({
     await sql
       .prepare(`
         INSERT INTO audit_logs (
-          event_id, ts, product, event_type, regulated_user_id, actor_id, object_type, object_id, container_id, detail, is_regulated, chain_hash, previous_event_id, lexicon_score, lexicon_flag
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          event_id, ts, product, event_type, regulated_user_id, regulated_user_name, regulated_user_email, regulated_user_crd, actor_id, actor_name, actor_email, object_type, object_id, container_id, detail, is_regulated, chain_hash, previous_event_id, lexicon_score, lexicon_flag
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bindParams(
         eventId,
@@ -228,7 +246,12 @@ export async function insertAuditLog({
         product,
         eventType,
         regulatedUserId,
+        recordPayload.regulated_user_name,
+        recordPayload.regulated_user_email,
+        recordPayload.regulated_user_crd,
         actorId,
+        recordPayload.actor_name,
+        recordPayload.actor_email,
         objectType,
         objectId,
         containerId,
@@ -276,7 +299,12 @@ export async function verifyAuditChain() {
         product: log.product,
         event_type: log.event_type,
         regulated_user_id: log.regulated_user_id,
+        regulated_user_name: log.regulated_user_name || '',
+        regulated_user_email: log.regulated_user_email || '',
+        regulated_user_crd: log.regulated_user_crd || '',
         actor_id: log.actor_id,
+        actor_name: log.actor_name || '',
+        actor_email: log.actor_email || '',
         object_type: log.object_type,
         object_id: log.object_id,
         container_id: log.container_id,

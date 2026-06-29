@@ -51,6 +51,7 @@ export default function App() {
   const [reviewFilter, setReviewFilter] = useState('all'); // 'all' | 'pending' | 'reviewed'
   const [sortBy, setSortBy] = useState('date_desc'); // 'date_desc' | 'risk_desc'
   const [selectedDetails, setSelectedDetails] = useState(null);
+  const [selectedIdentity, setSelectedIdentity] = useState(null); // identity popout for a regulated user
   const [mainTab, setMainTab] = useState('audit'); // 'webhook' | 'lexicon' | 'chain' | 'audit'
 
   // Load configuration on mount
@@ -267,6 +268,9 @@ export default function App() {
     return (
       (log.event_id && log.event_id.toLowerCase().includes(query)) ||
       (log.regulated_user_id && log.regulated_user_id.toLowerCase().includes(query)) ||
+      (log.regulated_user_name && log.regulated_user_name.toLowerCase().includes(query)) ||
+      (log.regulated_user_email && log.regulated_user_email.toLowerCase().includes(query)) ||
+      (log.regulated_user_crd && String(log.regulated_user_crd).toLowerCase().includes(query)) ||
       (log.actor_id && log.actor_id.toLowerCase().includes(query)) ||
       (log.event_type && log.event_type.toLowerCase().includes(query)) ||
       (log.detail && log.detail.toLowerCase().includes(query))
@@ -865,8 +869,19 @@ export default function App() {
                     <tr key={log.event_id}>
                       <td>{new Date(Number(log.ts)).toLocaleString()}</td>
                       <td>{getFriendlyEventName(log.event_type)}</td>
-                      <td title={log.regulated_user_id}>
-                        {log.regulated_user_id.slice(0, 15)}...
+                      <td>
+                        <button
+                          type="button"
+                          className="badge"
+                          style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', maxWidth: '180px' }}
+                          title="View regulated user identity"
+                          onClick={() => setSelectedIdentity(log)}
+                        >
+                          👤 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {log.regulated_user_name || `${log.regulated_user_id.slice(0, 12)}…`}
+                          </span>
+                          {log.regulated_user_crd ? <span style={{ fontSize: '10px', opacity: 0.7 }}>· CRD {log.regulated_user_crd}</span> : null}
+                        </button>
                       </td>
                       <td>
                         {log.object_type} ({log.object_id.slice(0, 8)})
@@ -994,6 +1009,46 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
               <button type="button" className="btn btn-primary" style={{ background: '#4b5563', border: 'none' }} onClick={() => setSelectedDetails(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedIdentity && (
+        <div className="modal-overlay" onClick={() => setSelectedIdentity(null)}>
+          <div className="modal-content" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px', fontWeight: '600', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+              👤 Regulated User Identity
+            </h3>
+            <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+              Identity snapshot captured at event time (FINRA 4511 / SEC 17a-4(j) legibility).
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 16px', fontSize: '13px', marginBottom: '8px' }}>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Name</span>
+              <span style={{ color: 'var(--text-primary)' }}>{selectedIdentity.regulated_user_name || '(unavailable)'}</span>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Email</span>
+              <span style={{ color: 'var(--text-primary)' }}>{selectedIdentity.regulated_user_email || '(hidden / unavailable)'}</span>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>CRD #</span>
+              <span style={{ color: 'var(--text-primary)' }}>{selectedIdentity.regulated_user_crd || '(not mapped)'}</span>
+              <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Account ID</span>
+              <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '12px', wordBreak: 'break-all' }}>{selectedIdentity.regulated_user_id}</span>
+            </div>
+
+            <div style={{ borderTop: '1px solid var(--border-color)', marginTop: '12px', paddingTop: '12px' }}>
+              <p style={{ fontSize: '11px', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '8px' }}>Actor (who performed the action)</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 16px', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Name</span>
+                <span style={{ color: 'var(--text-primary)' }}>{selectedIdentity.actor_name || '(unavailable)'}</span>
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Email</span>
+                <span style={{ color: 'var(--text-primary)' }}>{selectedIdentity.actor_email || '(hidden / unavailable)'}</span>
+                <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Account ID</span>
+                <span style={{ color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: '12px', wordBreak: 'break-all' }}>{selectedIdentity.actor_id}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button type="button" className="btn btn-primary" style={{ background: '#4b5563', border: 'none' }} onClick={() => setSelectedIdentity(null)}>Close</button>
             </div>
           </div>
         </div>
