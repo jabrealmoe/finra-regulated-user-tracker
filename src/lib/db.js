@@ -384,8 +384,49 @@ export async function getAuditLogs(startTs, endTs) {
 }
 
 /**
+ * Computes a cheap "signature" of the audit log for a given product/window without
+ * pulling any rows. The frontend polls this to decide whether a full (expensive,
+ * JOIN-heavy) getAuditLogs reload is actually warranted — i.e. only when a new event
+ * has landed or the row count changed. This is what makes interval polling feel
+ * event-driven while keeping the database load negligible.
+ * @param {number|null} startTs Optional lower bound (epoch ms)
+ * @param {number|null} endTs Optional upper bound (epoch ms)
+ * @param {string|null} product Optional product filter ('jira' | 'confluence')
+ * @returns {Promise<{count: number, latestTs: number}>}
+ */
+export async function getAuditLogSignature(startTs, endTs, product) {
+  await initDatabase();
+
+  try {
+    let query = `SELECT COUNT(*) AS cnt, COALESCE(MAX(ts), 0) AS latest FROM audit_logs`;
+    const clauses = [];
+    const params = [];
+
+    if (product) { clauses.push(`product = ?`); params.push(product); }
+    if (startTs) { clauses.push(`ts >= ?`); params.push(startTs); }
+    if (endTs) { clauses.push(`ts <= ?`); params.push(endTs); }
+
+    if (clauses.length > 0) {
+      query += ` WHERE ` + clauses.join(' AND ');
+    }
+
+    const statement = sql.prepare(query);
+    if (params.length > 0) {
+      statement.bindParams(...params);
+    }
+
+    const result = await statement.execute();
+    const row = (result.rows && result.rows[0]) || {};
+    return { count: Number(row.cnt || 0), latestTs: Number(row.latest || 0) };
+  } catch (error) {
+    console.error('Failed to compute audit log signature:', error);
+    return { count: 0, latestTs: 0 };
+  }
+}
+
+/**
  * Inserts an append-only compliance review record, maintaining a separate cryptographic chain.
- * @param {object} review 
+ * @param {object} review
  * @returns {Promise<object>} Status report
  */
 export async function insertComplianceReview({

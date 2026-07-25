@@ -277,6 +277,32 @@ export async function getRegulatedUsersInvolved(accountIds, product, config, eve
 }
 
 /**
+ * Resolves the flat list of regulated-user account IDs from configuration.
+ * - 'list' mode: the explicit comma-separated account IDs.
+ * - 'group' mode: reuse the bulk group-member listing. Atlassian account groups are shared
+ *   across products on a site, so the Jira group-member API returns the same membership we
+ *   need (it is the only BULK membership listing exposed to the app; the Confluence path
+ *   only supports per-user membership checks).
+ * Returns [] on any failure so callers can degrade gracefully.
+ * @param {object} config
+ * @returns {Promise<Array<string>>}
+ */
+export async function getRegulatedAccountIds(config) {
+  try {
+    if (config.userSource === 'list') {
+      return (config.accountIds || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(id => id.length > 0);
+    }
+    return await getGroupMembersCached(config.groupName || 'FINRA-Regulated', 'jira', config.ttl);
+  } catch (error) {
+    console.warn('Could not resolve regulated account IDs:', error);
+    return [];
+  }
+}
+
+/**
  * Resolves a human-readable identity (display name + email) for an Atlassian accountId.
  *
  * FINRA Rule 4511 / SEC Rule 17a-4(j) require records to be producible in "legible, true,

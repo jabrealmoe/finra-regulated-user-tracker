@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke, view } from '@forge/bridge';
 import PacManGame from './components/PacManGame';
 import DoomyGame from './components/DoomyGame';
@@ -39,6 +39,17 @@ export default function App() {
   const [onDate, setOnDate] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  // The date window currently APPLIED to the table (set when Filter/Clear is pressed),
+  // tracked separately from the input fields so auto-refresh re-queries the same window
+  // the user is actually looking at — not whatever half-typed value is in the inputs.
+  const [appliedWindow, setAppliedWindow] = useState({ startTs: null, endTs: null });
+
+  // Auto-refresh of the audit log while the panel is in view.
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastRefreshed, setLastRefreshed] = useState(null);
+  const logsSignatureRef = useRef('');  // last-seen "count:latestTs" signature
+  const pollingRef = useRef(false);      // guards against overlapping polls
   
   // Search query for logs (client-side filter on display)
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +92,47 @@ export default function App() {
       });
     }
   }, []);
+
+  // Auto-refresh: while the Audit Log tab is in view (and the browser tab is visible),
+  // poll the lightweight signature endpoint. Only when the signature changes — i.e. a new
+  // event landed or the count moved — do we run the full reload. This is independent of any
+  // page reload and effectively refreshes "on event" without a true server push (which Forge
+  // custom UI does not support). The poll re-queries the currently APPLIED date window.
+  useEffect(() => {
+    // Gate: only run on the audit tab with the feature enabled.
+    if (mainTab !== 'audit' || !autoRefresh) return undefined;
+
+    const POLL_INTERVAL_MS = 12000; // 12s — responsive yet light on the database
+
+    const tick = async () => {
+      // Skip while another poll is in flight, while the browser tab is hidden, or while a
+      // triage disposition is open (don't yank the table out from under an active reviewer).
+      if (pollingRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (selectedLogForReview) return;
+
+      pollingRef.current = true;
+      try {
+        const sig = await invoke('getLogsSignature', {
+          startTs: appliedWindow.startTs,
+          endTs: appliedWindow.endTs,
+          product: productContext
+        });
+        const sigStr = `${sig.count}:${sig.latestTs}`;
+        if (sigStr !== logsSignatureRef.current) {
+          logsSignatureRef.current = sigStr;
+          await fetchLogs(appliedWindow.startTs, appliedWindow.endTs);
+        }
+      } catch (err) {
+        console.error('Auto-refresh poll failed:', err);
+      } finally {
+        pollingRef.current = false;
+      }
+    };
+
+    const intervalId = setInterval(tick, POLL_INTERVAL_MS);
+    return () => clearInterval(intervalId);
+  }, [mainTab, autoRefresh, productContext, appliedWindow, selectedLogForReview]);
 
   const handleSubmitReview = async (eventId) => {
     try {
@@ -141,6 +193,7 @@ export default function App() {
       setLoadingLogs(true);
       const data = await invoke('getLogs', { startTs, endTs });
       setLogs(data || []);
+      setLastRefreshed(Date.now());
     } catch (err) {
       console.error('Error fetching logs:', err);
     } finally {
@@ -185,19 +238,20 @@ export default function App() {
 
   const handleFilterLogs = (e) => {
     e.preventDefault();
-    if (dateMode === 'on') {
+    const win = dateMode === 'on'
       // Single day: span the full chosen calendar day [00:00:00.000 .. 23:59:59.999].
-      fetchLogs(dayStartTs(onDate), dayEndTs(onDate));
-    } else {
+      ? { startTs: dayStartTs(onDate), endTs: dayEndTs(onDate) }
       // Range: inclusive of both endpoints' full days.
-      fetchLogs(dayStartTs(startDate), dayEndTs(endDate));
-    }
+      : { startTs: dayStartTs(startDate), endTs: dayEndTs(endDate) };
+    setAppliedWindow(win);
+    fetchLogs(win.startTs, win.endTs);
   };
 
   const handleResetFilters = () => {
     setOnDate('');
     setStartDate('');
     setEndDate('');
+    setAppliedWindow({ startTs: null, endTs: null });
     fetchLogs();
   };
 
@@ -756,7 +810,24 @@ export default function App() {
         <div className="logs-section" style={{ marginTop: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
             <h2>Tracked Event Audit Log</h2>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {/* Auto-refresh control: live polling status + on/off toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', minWidth: '92px', textAlign: 'right' }}>
+                  {autoRefresh
+                    ? (lastRefreshed ? `Updated ${new Date(lastRefreshed).toLocaleTimeString()}` : 'Live')
+                    : 'Auto-refresh off'}
+                </span>
+                <label className="switch" title="Automatically reload the audit log when new events are recorded">
+                  <input
+                    type="checkbox"
+                    checked={autoRefresh}
+                    onChange={(e) => setAutoRefresh(e.target.checked)}
+                  />
+                  <span className="slider"></span>
+                </label>
+                <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600 }}>🔄 Live</span>
+              </div>
               <button className="btn btn-secondary" onClick={handleExportCSV} disabled={filteredLogs.length === 0}>
                 Export CSV
               </button>

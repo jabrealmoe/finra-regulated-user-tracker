@@ -9,12 +9,14 @@ import {
   dispatchN8nEnrichment,
   extractTextFromAdf,
   resolveUserIdentity,
-  resolveCrd
+  resolveCrd,
+  getRegulatedAccountIds
 } from './lib/utils';
-import { 
-  insertAuditLog, 
-  isDuplicateEvent, 
+import {
+  insertAuditLog,
+  isDuplicateEvent,
   getAuditLogs,
+  getAuditLogSignature,
   insertRiskScore
 } from './lib/db';
 
@@ -43,6 +45,13 @@ resolver.define('getLogs', async ({ payload }) => {
   const logs = await getAuditLogs(startTs, endTs);
   console.log(`[getLogs] Fetched ${logs.length} logs from DB.`);
   return logs;
+});
+
+// Cheap change-detector polled by the admin panel to auto-refresh the audit log.
+// Returns only a count + latest timestamp so polling stays lightweight.
+resolver.define('getLogsSignature', async ({ payload }) => {
+  const { startTs, endTs, product } = payload || {};
+  return await getAuditLogSignature(startTs, endTs, product);
 });
 
 resolver.define('verifyChain', async () => {
@@ -489,21 +498,62 @@ export async function pollReactions(event, context) {
   try {
     const { kvs } = require('@forge/kvs');
 
-    // 1. Fetch recently modified Confluence pages (representing active content)
+    // 1. Fetch recently modified Confluence pages and blogposts (active content). Normalize
+    //    each into a common shape: { id, type, title, authorId, spaceId }.
     const pagesRes = await asApp().requestConfluence(route`/wiki/api/v2/pages?sort=-modified-date&limit=25`);
     if (!pagesRes.ok) throw new Error(`Failed to fetch recent pages: ${pagesRes.status}`);
     const pagesData = await pagesRes.json();
-    const pages = pagesData.results || [];
+    const pages = (pagesData.results || []).map(p => ({
+      id: p.id, type: 'page', title: p.title, authorId: p.authorId, spaceId: p.spaceId
+    }));
 
-    // Also fetch recently modified blogposts
     const blogsRes = await asApp().requestConfluence(route`/wiki/api/v2/blogposts?sort=-modified-date&limit=15`);
     let blogposts = [];
     if (blogsRes.ok) {
       const blogsData = await blogsRes.json();
-      blogposts = blogsData.results || [];
+      blogposts = (blogsData.results || []).map(b => ({
+        id: b.id, type: 'blogpost', title: b.title, authorId: b.authorId, spaceId: b.spaceId
+      }));
     }
 
-    const contents = [...pages.map(p => ({ ...p, type: 'page' })), ...blogposts.map(b => ({ ...b, type: 'blogpost' }))];
+    // 2. Blind-spot fix: also scan content AUTHORED BY regulated users via CQL. Liking a page
+    //    does not change its modified-date, so the recent-content scan above misses likes on a
+    //    regulated user's older content. Pulling their authored content directly closes the gap.
+    const regulatedIds = await getRegulatedAccountIds(config);
+    const authored = [];
+    for (const rid of regulatedIds) {
+      try {
+        // CQL must be URL-encoded; the `route` tag encodes the interpolated value for us.
+        const cql = `type in (page,blogpost) and creator = "${rid}" order by lastmodified desc`;
+        const searchRes = await asApp().requestConfluence(
+          route`/wiki/rest/api/content/search?cql=${cql}&limit=25&expand=space`
+        );
+        if (!searchRes.ok) {
+          console.warn(`CQL author scan for ${rid} returned status ${searchRes.status}`);
+          continue;
+        }
+        const searchData = await searchRes.json();
+        for (const item of (searchData.results || [])) {
+          authored.push({
+            id: item.id,
+            type: item.type === 'blogpost' ? 'blogpost' : 'page',
+            title: item.title,
+            authorId: rid,
+            spaceId: item.space ? item.space.id : ''
+          });
+        }
+      } catch (e) {
+        console.warn(`CQL author scan failed for ${rid}:`, e);
+      }
+    }
+
+    // 3. Merge and de-duplicate by content id (first occurrence wins).
+    const contentById = new Map();
+    for (const c of [...pages, ...blogposts, ...authored]) {
+      if (c && c.id && !contentById.has(c.id)) contentById.set(c.id, c);
+    }
+    const contents = Array.from(contentById.values());
+    console.log(`Reaction poll scanning ${contents.length} content items (${pages.length} recent pages, ${blogposts.length} recent blogposts, ${authored.length} authored-by-regulated).`);
 
     for (const item of contents) {
       const contentId = item.id;
