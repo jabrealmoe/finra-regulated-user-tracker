@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { invoke, view } from '@forge/bridge';
-import PacManGame from './components/PacManGame';
-import DoomyGame from './components/DoomyGame';
 
 function getFriendlyEventName(eventType) {
   if (!eventType) return 'Unknown';
@@ -27,10 +25,7 @@ export default function App() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // { type: 'success'|'error', message: string }
   const [productContext, setProductContext] = useState('jira'); // 'jira' | 'confluence'
-  
-  // Active Game State ('pacman' | 'doomy' | null)
-  const [activeGame, setActiveGame] = useState(null);
-  
+
   // Date filters for audit log queries.
   // dateMode toggles the search shape, mirroring the MCRO "On | Range" control:
   //   'on'    -> match a single calendar day (onDate)
@@ -380,29 +375,9 @@ export default function App() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
-            className="btn btn-secondary" 
-            onClick={() => setActiveGame(activeGame === 'pacman' ? null : 'pacman')}
-            style={activeGame === 'pacman' ? { background: '#253858', color: '#fff' } : {}}
-          >
-            {activeGame === 'pacman' ? 'Hide Game' : '🎮 Play Pac-Man'}
-          </button>
-          <button 
-            className="btn btn-secondary" 
-            onClick={() => setActiveGame(activeGame === 'doomy' ? null : 'doomy')}
-            style={activeGame === 'doomy' ? { background: '#ef4444', color: '#fff', borderColor: '#ef4444' } : {}}
-          >
-            {activeGame === 'doomy' ? 'Hide Game' : '🔥 Play Doom'}
-          </button>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
       </header>
-
-      {activeGame && (
-        <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'center' }}>
-          {activeGame === 'pacman' ? <PacManGame /> : <DoomyGame />}
-        </div>
-      )}
 
       {saveStatus && (
         <div className={`alert alert-${saveStatus.type}`}>
