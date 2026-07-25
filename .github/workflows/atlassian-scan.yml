@@ -1,0 +1,30 @@
+# =======================================================================================
+# MANIFEST EGRESS COMPLIANCE SCAN
+# =======================================================================================
+# Calls the reusable manifest scanner (jabrealmoe/ReusableWorkflow) in allowlist
+# mode against this app's Forge manifest: every string under the manifest's
+# `external` key (permissions.external.fetch.*) must reference the approved
+# compliance archiver endpoint. Any PR or push that introduces a new outbound
+# destination for regulated-user audit data fails this check.
+#
+# Compliance Note:
+# This gate documents that outbound data flow is change-controlled, supporting
+# the app's SEC Rule 17a-4 tamper-evidence posture.
+# =======================================================================================
+
+name: Manifest Egress Compliance
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+
+jobs:
+  egress-allowlist:
+    uses: jabrealmoe/ReusableWorkflow/.github/workflows/atlassian-manifest-scan.yml@main
+    with:
+      manifest-path: manifest.yml
+      rule-keys: external
+      pattern: jabreal.app.n8n.cloud
+      mode: allow
+      fail-on-violation: true
