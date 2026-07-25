@@ -18,6 +18,19 @@ function getFriendlyEventName(eventType) {
   }
 }
 
+// Derives the effective risk presentation for a log row: the deep (n8n) score
+// wins over the baseline lexicon score when present.
+function riskInfo(log) {
+  const hasDeep = log.deep_score !== null && log.deep_score !== undefined;
+  const score = hasDeep ? Number(log.deep_score) : (Number(log.lexicon_score) || 0);
+  return {
+    score,
+    tier: score >= 70 ? 'high' : score >= 40 ? 'med' : 'low',
+    source: hasDeep ? 'n8n' : 'Lexicon',
+    title: hasDeep ? log.deep_reasons : log.lexicon_flag
+  };
+}
+
 export default function App() {
   const [config, setConfigState] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -366,15 +379,25 @@ export default function App() {
   }
 
   return (
-    <div className="container">
-      <header style={{ backgroundColor: productContext === 'confluence' ? '#F2A900' : '#D52B1E', borderBottomColor: productContext === 'confluence' ? '#D52B1E' : '#F2A900' }}>
-        <div>
-          <h1>Financial Industry Regulatory Authority (FINRA) Compliance &amp; Supervision Hub</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginTop: '4px' }}>
-            Compliance auditing and event monitoring for regulated accounts.
-          </p>
+    <div className="container" data-product={productContext}>
+      <header className="masthead">
+        <div className="masthead-brand">
+          <div className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2.5 4.5 5.4v6.1c0 4.6 3.2 8 7.5 9.9 4.3-1.9 7.5-5.3 7.5-9.9V5.4L12 2.5Z" stroke="#EEB111" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M8.6 12.2l2.3 2.3 4.5-4.7" stroke="#EEB111" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <div>
+            <p className="masthead-eyebrow">Financial Industry Regulatory Authority</p>
+            <h1 className="masthead-title">Compliance &amp; Supervision Hub</h1>
+            <p className="masthead-sub">Regulated-user activity auditing · tamper-evident archival · supervisory review</p>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div className="masthead-actions">
+          <span className={`product-chip product-${productContext}`}>
+            {productContext === 'confluence' ? 'Confluence Workspace' : 'Jira Workspace'}
+          </span>
           <button className="btn btn-secondary" onClick={fetchConfig}>Refresh Config</button>
         </div>
       </header>
@@ -413,7 +436,7 @@ export default function App() {
                     placeholder="e.g. FINRA-Regulated"
                     required
                   />
-                  <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                  <small className="field-hint">
                     Users belonging to this group will have their activities tracked.
                   </small>
                 </div>
@@ -427,7 +450,7 @@ export default function App() {
                     placeholder="300"
                     required
                   />
-                  <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                  <small className="field-hint">
                     How long group membership will be cached to avoid excessive API requests.
                   </small>
                 </div>
@@ -443,7 +466,7 @@ export default function App() {
                   style={{ resize: 'vertical' }}
                   required
                 />
-                <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                <small className="field-hint">
                   Enter the specific Atlassian account IDs of regulated users, separated by commas.
                 </small>
               </div>
@@ -572,7 +595,7 @@ export default function App() {
         </div>
 
         {/* ─── Main Tab Bar ─── */}
-        <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginTop: '24px', gap: '0', flexWrap: 'wrap' }}>
+        <div className="tab-bar" role="tablist">
           {[
             { key: 'audit', label: '📋 Tracked Event Audit Log' },
             { key: 'webhook', label: '🔗 Webhook Configuration' },
@@ -582,18 +605,10 @@ export default function App() {
             <button
               key={tab.key}
               type="button"
+              role="tab"
+              aria-selected={mainTab === tab.key}
+              className={`tab ${mainTab === tab.key ? 'is-active' : ''}`}
               onClick={() => setMainTab(tab.key)}
-              style={{
-                padding: '12px 20px',
-                background: 'none',
-                border: 'none',
-                borderBottom: mainTab === tab.key ? '3px solid var(--accent-color)' : '3px solid transparent',
-                color: mainTab === tab.key ? 'var(--text-primary)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontSize: '14px',
-                transition: 'all 0.2s ease'
-              }}
             >
               {tab.label}
             </button>
@@ -604,7 +619,7 @@ export default function App() {
         {mainTab === 'webhook' && (
           <div className="card" style={{ marginTop: '20px' }}>
             <h2>Webhook Configuration</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+            <p className="section-note">
               Configure automatic forwarding of compliance audit logs in EML email format to an n8n webhook or custom HTTP receiver.
             </p>
             
@@ -631,20 +646,18 @@ export default function App() {
                   placeholder="https://your-banking-middleware.com/webhook"
                   required
                 />
-                <small style={{ color: 'var(--text-secondary)', display: 'block', marginTop: '6px', fontSize: '12px' }}>
+                <small className="field-hint">
                   Note: The destination host domain must be whitelisted in the app manifest.yml.
                 </small>
               </div>
             )}
 
             {config.webhookTarget !== 'disabled' && config.webhookTarget !== 'custom' && (
-              <div style={{ marginTop: '8px', padding: '12px', background: '#f4f5f7', borderRadius: '4px', borderLeft: '3px solid var(--accent-color)' }}>
-                <small style={{ fontSize: '12px', color: '#172b4d', fontWeight: '500' }}>
-                  Target Endpoint: {config.webhookTarget === 'test' 
-                    ? 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
-                    : 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
-                  }
-                </small>
+              <div className="info-strip">
+                Target Endpoint: {config.webhookTarget === 'test'
+                  ? 'https://jabreal.app.n8n.cloud/webhook-test/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                  : 'https://jabreal.app.n8n.cloud/webhook/9fd48593-a44d-4b28-bfb5-143c1aa99af5'
+                }
               </div>
             )}
 
@@ -675,7 +688,7 @@ export default function App() {
         {mainTab === 'lexicon' && (
           <div className="card" style={{ marginTop: '20px' }}>
             <h2>Lexicon Rules Engine</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '16px' }}>
+            <p className="section-note">
               Configure regular expressions to evaluate baseline risk scores deterministically in-Forge. Format: <code>pattern,score,flag</code> (one rule per line).
             </p>
             <div className="form-group">
@@ -710,19 +723,18 @@ export default function App() {
       {/* ─── Tab: Chain Integrity (outside form, read-only) ─── */}
       {mainTab === 'chain' && (
         <div className="logs-section" style={{ marginTop: '20px' }}>
-          <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-            <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '8px' }}>Tamper-Evident Chain Integrity</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '12px', marginBottom: '14px', lineHeight: '1.4' }}>
+          <div className="panel">
+            <h3>Tamper-Evident Chain Integrity</h3>
+            <p className="section-note" style={{ fontSize: '12px' }}>
               SEC Rule 17a-4 compliant cryptographic verification. Every audit record is linked by a SHA-256 hash chain.
               Walking the chain guarantees non-repudiation and that no records have been altered, added, or deleted.
             </p>
             
-            <button 
-              type="button" 
-              className="btn btn-primary" 
-              onClick={handleVerifyChain} 
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleVerifyChain}
               disabled={verifying}
-              style={{ background: '#3b82f6', border: 'none' }}
             >
               {verifying ? 'Running Verification...' : '🛡️ Run Cryptographic Verification'}
             </button>
@@ -747,8 +759,8 @@ export default function App() {
           </div>
 
           {dailyDigests.length > 0 && (
-            <div style={{ background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-color)', marginTop: '20px' }}>
-              <h3 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '8px' }}>Sealed Daily Digests (Anchored)</h3>
+            <div className="panel" style={{ marginTop: '20px' }}>
+              <h3>Sealed Daily Digests (Anchored)</h3>
               <div className="table-container" style={{ maxHeight: '150px' }}>
                 <table>
                   <thead>
@@ -787,8 +799,8 @@ export default function App() {
             <h2>Tracked Event Audit Log</h2>
             <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
               {/* Auto-refresh control: live polling status + on/off toggle */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)', minWidth: '92px', textAlign: 'right' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span className="live-timestamp">
                   {autoRefresh
                     ? (lastRefreshed ? `Updated ${new Date(lastRefreshed).toLocaleTimeString()}` : 'Live')
                     : 'Auto-refresh off'}
@@ -801,7 +813,10 @@ export default function App() {
                   />
                   <span className="slider"></span>
                 </label>
-                <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600 }}>🔄 Live</span>
+                <span className="live-indicator">
+                  <span className={`live-dot ${autoRefresh ? '' : 'is-off'}`}></span>
+                  Live
+                </span>
               </div>
               <button className="btn btn-secondary" onClick={handleExportCSV} disabled={filteredLogs.length === 0}>
                 Export CSV
@@ -817,25 +832,16 @@ export default function App() {
                 Selecting a mode reveals only that mode's date field(s). */}
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Event Date</label>
-              <div style={{ display: 'inline-flex', border: '1px solid var(--border-color)', borderRadius: '6px', overflow: 'hidden' }}>
+              <div className="segmented">
                 {[
                   { key: 'on', label: 'On' },
                   { key: 'range', label: 'Range' },
-                ].map((m, i) => (
+                ].map((m) => (
                   <button
                     key={m.key}
                     type="button"
+                    className={`segment ${dateMode === m.key ? 'is-active' : ''}`}
                     onClick={() => setDateMode(m.key)}
-                    style={{
-                      padding: '8px 18px',
-                      border: 'none',
-                      borderLeft: i === 1 ? '1px solid var(--border-color)' : 'none',
-                      background: dateMode === m.key ? 'var(--accent-color)' : '#ffffff',
-                      color: dateMode === m.key ? '#ffffff' : 'var(--text-primary)',
-                      fontWeight: '600',
-                      fontSize: '14px',
-                      cursor: 'pointer'
-                    }}
                   >
                     {m.label}
                   </button>
@@ -877,7 +883,7 @@ export default function App() {
 
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Sort Triage By</label>
-              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', background: '#ffffff', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
                 <option value="date_desc">Newest First</option>
                 <option value="risk_desc">⚠️ Highest Risk First</option>
               </select>
@@ -898,52 +904,26 @@ export default function App() {
           </div>
 
           {/* Sub-Tab Navigator for Review Queue */}
-          <div style={{ display: 'flex', borderBottom: '2px solid var(--border-color)', marginBottom: '20px', gap: '20px' }}>
-            <button 
+          <div className="subtab-bar">
+            <button
               type="button"
+              className={`subtab ${reviewFilter === 'all' ? 'is-active' : ''}`}
               onClick={() => setReviewFilter('all')}
-              style={{
-                padding: '10px 16px',
-                background: 'none',
-                border: 'none',
-                borderBottom: reviewFilter === 'all' ? '2px solid var(--accent-color)' : 'none',
-                color: reviewFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontSize: '14px'
-              }}
             >
               📁 All Events Audit Trail
             </button>
-            <button 
+            <button
               type="button"
+              className={`subtab subtab-warn ${reviewFilter === 'pending' ? 'is-active' : ''}`}
               onClick={() => setReviewFilter('pending')}
-              style={{
-                padding: '10px 16px',
-                background: 'none',
-                border: 'none',
-                borderBottom: reviewFilter === 'pending' ? '2px solid var(--warning-color)' : 'none',
-                color: reviewFilter === 'pending' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontSize: '14px'
-              }}
             >
-              🔥 Pending Review Queue ({logs.filter(l => !l.review_status || l.review_status === 'captured' || l.review_status === 'pending-review').filter(l => l.product === productContext).length})
+              🔥 Pending Review Queue
+              <span className="subtab-count">{logs.filter(l => !l.review_status || l.review_status === 'captured' || l.review_status === 'pending-review').filter(l => l.product === productContext).length}</span>
             </button>
-            <button 
+            <button
               type="button"
+              className={`subtab subtab-ok ${reviewFilter === 'reviewed' ? 'is-active' : ''}`}
               onClick={() => setReviewFilter('reviewed')}
-              style={{
-                padding: '10px 16px',
-                background: 'none',
-                border: 'none',
-                borderBottom: reviewFilter === 'reviewed' ? '2px solid var(--success-color)' : 'none',
-                color: reviewFilter === 'reviewed' ? 'var(--text-primary)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontWeight: '600',
-                fontSize: '14px'
-              }}
             >
               ✓ Dispositioned Logs
             </button>
@@ -981,51 +961,40 @@ export default function App() {
                       <td>
                         <button
                           type="button"
-                          className="badge"
-                          style={{ background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', maxWidth: '180px' }}
+                          className="user-pill"
                           title="View regulated user identity"
                           onClick={() => setSelectedIdentity(log)}
                         >
-                          👤 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          👤 <span className="pill-name">
                             {log.regulated_user_name || `${log.regulated_user_id.slice(0, 12)}…`}
                           </span>
-                          {log.regulated_user_crd ? <span style={{ fontSize: '10px', opacity: 0.7 }}>· CRD {log.regulated_user_crd}</span> : null}
+                          {log.regulated_user_crd ? <span className="pill-crd">· CRD {log.regulated_user_crd}</span> : null}
                         </button>
                       </td>
                       <td>
                         {log.object_type} ({log.object_id.slice(0, 8)})
                       </td>
                       <td>
-                        <button 
-                          type="button" 
-                          className="badge" 
-                          style={{ background: '#f1f5f9', color: '#1e293b', border: '1px solid #cbd5e1', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
+                        <button
+                          type="button"
+                          className="chip-btn"
                           onClick={() => setSelectedDetails({ id: log.event_id, data: log.detail })}
                         >
                           🔍 View Metadata
                         </button>
                       </td>
                       <td>
-                        {log.deep_score !== null && log.deep_score !== undefined ? (
-                          <span className="badge" style={{ background: log.deep_score >= 70 ? 'rgba(239,68,68,0.2)' : log.deep_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.deep_score >= 70 ? '#ef4444' : log.deep_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.deep_reasons}>
-                            🔥 {log.deep_score} (n8n)
-                          </span>
-                        ) : (
-                          <span className="badge" style={{ background: log.lexicon_score >= 70 ? 'rgba(239,68,68,0.2)' : log.lexicon_score >= 40 ? 'rgba(234,179,8,0.2)' : 'rgba(148,163,184,0.2)', color: log.lexicon_score >= 70 ? '#ef4444' : log.lexicon_score >= 40 ? '#eab308' : '#94a3b8', border: '1px solid currentColor', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: '3px' }} title={log.lexicon_flag}>
-                            🏷️ {log.lexicon_score || 0} (Lexicon)
-                          </span>
-                        )}
+                        {(() => {
+                          const risk = riskInfo(log);
+                          return (
+                            <span className={`risk-badge risk-${risk.tier}-tier`} title={risk.title}>
+                              {risk.score} <span className="risk-source">{risk.source}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td>
-                        <span 
-                          className="badge" 
-                          style={
-                            log.review_status === 'escalated' ? { background: 'rgba(239,68,68,0.2)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)' } :
-                            log.review_status === 'remediated' ? { background: 'rgba(168,85,247,0.2)', color: '#c084fc', border: '1px solid rgba(168,85,247,0.3)' } :
-                            log.review_status === 'reviewed-no-concern' ? { background: 'rgba(16,185,129,0.2)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' } :
-                            { background: 'rgba(234,179,8,0.2)', color: '#eab308', border: '1px solid rgba(234,179,8,0.3)' }
-                          }
-                        >
+                        <span className={`status-badge status-${log.review_status || 'captured'}`}>
                           {log.review_status || 'captured'}
                         </span>
                       </td>
@@ -1055,9 +1024,7 @@ export default function App() {
       {selectedLogForReview && (
         <div className="modal-overlay" onClick={() => setSelectedLogForReview(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '12px', fontWeight: '600', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-              Log Triage Disposition
-            </h3>
+            <h3 className="modal-title">Log Triage Disposition</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px', wordBreak: 'break-all' }}>
               Event ID: <code>{selectedLogForReview}</code>
             </p>
@@ -1081,10 +1048,9 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
               <button type="button" className="btn btn-secondary" onClick={() => setSelectedLogForReview(null)}>Cancel</button>
-              <button 
+              <button
                 type="button"
-                className="btn btn-primary" 
-                style={{ background: '#3b82f6', border: 'none' }}
+                className="btn btn-primary"
                 onClick={() => handleSubmitReview(selectedLogForReview)}
                 disabled={submittingReview}
               >
@@ -1098,14 +1064,12 @@ export default function App() {
       {selectedDetails && (
         <div className="modal-overlay" onClick={() => setSelectedDetails(null)}>
           <div className="modal-content" style={{ maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '12px', fontWeight: '600', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-              Compliance Event Audit Details
-            </h3>
+            <h3 className="modal-title">Compliance Event Audit Details</h3>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               Event Instance: <code>{selectedDetails.id}</code>
             </p>
-            <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '16px', maxHeight: '350px', overflowY: 'auto' }}>
-              <pre style={{ margin: 0, fontSize: '12px', color: '#0f172a', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+            <div className="code-panel">
+              <pre>
                 {(() => {
                   try {
                     const parsed = typeof selectedDetails.data === 'string' ? JSON.parse(selectedDetails.data) : selectedDetails.data;
@@ -1117,7 +1081,7 @@ export default function App() {
               </pre>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-              <button type="button" className="btn btn-primary" style={{ background: '#4b5563', border: 'none' }} onClick={() => setSelectedDetails(null)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setSelectedDetails(null)}>Close</button>
             </div>
           </div>
         </div>
@@ -1126,9 +1090,7 @@ export default function App() {
       {selectedIdentity && (
         <div className="modal-overlay" onClick={() => setSelectedIdentity(null)}>
           <div className="modal-content" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ fontSize: '16px', color: 'var(--text-primary)', marginBottom: '4px', fontWeight: '600', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-              👤 Regulated User Identity
-            </h3>
+            <h3 className="modal-title" style={{ marginBottom: '4px' }}>👤 Regulated User Identity</h3>
             <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               Identity snapshot captured at event time (FINRA 4511 / SEC 17a-4(j) legibility).
             </p>
@@ -1157,7 +1119,7 @@ export default function App() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
-              <button type="button" className="btn btn-primary" style={{ background: '#4b5563', border: 'none' }} onClick={() => setSelectedIdentity(null)}>Close</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setSelectedIdentity(null)}>Close</button>
             </div>
           </div>
         </div>
