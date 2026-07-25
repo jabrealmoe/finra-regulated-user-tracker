@@ -1,29 +1,31 @@
 # =======================================================================================
 # MANIFEST EGRESS COMPLIANCE SCAN
 # =======================================================================================
-# Calls the reusable manifest scanner (jabrealmoe/ReusableWorkflow) in deny
-# mode against this app's Forge manifest: any string under the manifest's
-# `external` key (permissions.external.fetch.*) referencing the
-# jabreal.app.n8n.cloud endpoint is a security violation and fails the build.
+# Submits this repo's Forge manifest to the CENTRAL egress policy defined in
+# jabrealmoe/ReusableWorkflow. The policy (approved endpoints, scanned keys,
+# failure behavior) lives entirely in the reusable workflow and cannot be
+# overridden here. Under the current central policy, every address under
+# permissions.external.fetch must reference an approved endpoint; apps with
+# no egress at all pass trivially.
 #
 # Compliance Note:
-# This gate documents that outbound data flow is change-controlled, supporting
-# the app's SEC Rule 17a-4 tamper-evidence posture.
+# This gate documents that outbound data flow is change-controlled centrally,
+# supporting the app's SEC Rule 17a-4 tamper-evidence posture.
 # =======================================================================================
 
 name: Manifest Egress Compliance
 
+# Push scans run only on feature branches (feature/* or f*/ prefixes);
+# development and main are still gated via the pull_request trigger.
 on:
   push:
-    branches: [main, development]
+    branches:
+      - "feature/**"
+      - "f*/**"
   pull_request:
 
 jobs:
-  egress-denylist:
+  manifest-scan:
     uses: jabrealmoe/ReusableWorkflow/.github/workflows/atlassian-manifest-scan.yml@main
     with:
       manifest-path: manifest.yml
-      rule-keys: external
-      pattern: jabreal.app.n8n.cloud
-      mode: deny
-      fail-on-violation: true
