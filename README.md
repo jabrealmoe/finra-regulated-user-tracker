@@ -122,3 +122,7 @@ The app scans the following associations:
 * **Filtering**: If **no** regulated users are identified as actor or mention targets, the execution halts immediately. No webhook is dispatched.
 * **Payload Format**: Standardized EML email format (`message/rfc822`) sent via HTTP POST with `Content-Type: text/plain` containing headers (From, To, Date, Subject, Message-ID) and a details body.
 
+
+## Deployment
+
+CI runs in GitHub Actions (QA inside the `ghcr.io/jabrealmoe/forge-cli` builder image). Deployments are performed by Harness: green CI on `development` or `main` fires a webhook and the Harness pipeline `deploy_forge_app` deploys via the Forge CLI (production gated by approval, with automatic rollback).
