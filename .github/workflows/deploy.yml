@@ -146,6 +146,13 @@ jobs:
         uses: actions/checkout@v4
       - name: Install Root Dependencies
         run: npm ci
+      # forge lint validates that the manifest's admin-ui resource path
+      # (static/admin-page/dist) exists, so the frontend must be built first.
+      - name: Build Frontend Resource
+        working-directory: static/admin-page
+        run: |
+          npm ci --legacy-peer-deps
+          npm run build
       - name: Forge Manifest Lint
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
