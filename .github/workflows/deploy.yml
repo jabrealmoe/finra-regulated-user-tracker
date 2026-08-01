@@ -54,10 +54,12 @@ permissions:
 
 jobs:
   # -------------------------------------------------------------------------------------
-  # 1. QA - Runs on all pushes (development and main), inside the forge-cli image
+  # 1. QA - Five parallel jobs, one node per check in the workflow graph.
+  #    Each gates the deploy triggers independently, so a red X points straight
+  #    at the failing concern (types vs tests vs build vs manifest).
   # -------------------------------------------------------------------------------------
-  qa:
-    name: QA Lint, Test & Build
+  typecheck:
+    name: Type Check
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
@@ -67,31 +69,83 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Install Root Dependencies
-        run: npm ci
-
-      # NOTE: `npm run lint` is intentionally not run here — the repo has no
-      # ESLint config yet, and adding one surfaces 22 existing errors
-      # (including undefined variables in src/index.jsx error paths). Add the
-      # config + fixes in a dedicated change, then reinstate a Lint Backend
-      # step above this comment.
       - name: Install Frontend Dependencies
         working-directory: static/admin-page
         run: npm ci --legacy-peer-deps
-
       - name: Type-Checking (TypeScript)
         working-directory: static/admin-page
         run: npx tsc --noEmit || echo "No TS configured or completed"
 
-      - name: Run Tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
         working-directory: static/admin-page
-        run: npm test -- --watchAll=false || echo "No test suite configured"
+        run: npm ci --legacy-peer-deps
+      - name: Run Unit Tests
+        working-directory: static/admin-page
+        run: npm test -- --watchAll=false || echo "No unit test suite configured yet"
 
+  e2e-tests:
+    name: E2E Tests (Playwright)
+    runs-on: ubuntu-latest
+    # Official Playwright image: browsers preinstalled, version must match
+    # the @playwright/test devDependency in static/admin-page/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
+        working-directory: static/admin-page
+        run: npm ci --legacy-peer-deps
+      - name: Run Playwright Suite
+        working-directory: static/admin-page
+        run: npx playwright test
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
+        working-directory: static/admin-page
+        run: npm ci --legacy-peer-deps
       - name: Build Frontend
         working-directory: static/admin-page
         run: npm run build
 
+  # NOTE: a backend "Lint" job is intentionally absent — the repo has no
+  # ESLint config yet, and adding one surfaces 22 existing errors (including
+  # undefined variables in src/index.jsx error paths). Add the config + fixes
+  # in a dedicated change, then add a lint job alongside these.
+  manifest-lint:
+    name: Forge Manifest Lint
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Root Dependencies
+        run: npm ci
       - name: Forge Manifest Lint
         env:
           FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
@@ -105,7 +159,7 @@ jobs:
   # -------------------------------------------------------------------------------------
   trigger-deploy-dev:
     name: Trigger Harness Deploy (Development)
-    needs: qa
+    needs: [typecheck, unit-tests, e2e-tests, frontend-build, manifest-lint]
     if: github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
     environment:
@@ -157,7 +211,7 @@ jobs:
   # -------------------------------------------------------------------------------------
   versioning:
     name: Semantic Versioning
-    needs: qa
+    needs: [typecheck, unit-tests, e2e-tests, frontend-build, manifest-lint]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
