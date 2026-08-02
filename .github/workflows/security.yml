@@ -1,0 +1,77 @@
+# =======================================================================================
+# SECURITY SCANNING
+# =======================================================================================
+# Free, widely-used scanners covering three layers:
+#   * CodeQL      — static analysis (SAST) of our own JavaScript (free on public repos)
+#   * npm audit   — known-vulnerability check of direct AND transitive npm deps,
+#                   gated at high severity on production dependencies
+#   * Trivy       — filesystem scan of lockfiles (npm) for vulnerable packages,
+#                   plus Dockerfile misconfiguration checks
+# Dependabot (.github/dependabot.yml) complements these with automated update PRs.
+#
+# Compliance Note:
+# Weekly scheduled runs catch advisories published after the last push, so a
+# quiet repo still gets rescanned — relevant for SEC 17a-4 / FINRA 4511
+# supervision posture.
+# =======================================================================================
+
+name: Security Scanning
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+  schedule:
+    - cron: "0 7 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+
+  dependency-audit:
+    name: npm audit (deps + transitive)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Audit backend production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit frontend production dependencies
+        working-directory: static/admin-page
+        run: npm audit --omit=dev --audit-level=high
+
+  trivy:
+    name: Trivy (lockfiles + Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Scan repository filesystem
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

@@ -1,0 +1,8 @@
+# DS-0002: "Specify at least 1 USER command in Dockerfile with non-root user"
+# Accepted risk, documented rationale:
+# The Dockerfile here builds a CI job-container image (ghcr forge-cli) used by
+# GitHub Actions `container:` jobs. The Actions runner requires root inside
+# job containers — a non-root USER breaks checkout and workspace writes
+# (mounted /__w is not writable by arbitrary UIDs). The image never runs in
+# production; it only executes CI steps on ephemeral runners.
+DS-0002

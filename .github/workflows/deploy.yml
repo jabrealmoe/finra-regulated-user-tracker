@@ -1,31 +1,36 @@
 # =======================================================================================
-# GITHUB ACTIONS CI/CD WORKFLOW FOR FINRA REGULATED USER TRACKER
+# GITHUB ACTIONS CI WORKFLOW FOR FINRA REGULATED USER TRACKER
 # =======================================================================================
-# Summarized Flow:
-# 1. QA: Runs type-checks and tests on pushes to development and main.
-# 2. Deploy to Development: Builds and deploys to Dev environment on pushes to development.
-# 3. Promote: Creates/updates a Pull Request from development to main.
-# 4. Versioning: Generates semver tag and changelog on main.
-# 5. Deploy to Production: Checked out at tag, gates on manual approval (environment protection),
-#    builds and deploys to Production.
-# 6. Rollback: If production deploy fails, rolls back to second-most-recent tag.
-# 7. Release: Creates a GitHub Release for successful production deploys.
+# CI lives here; CD lives in Harness. GitHub Actions never runs `forge deploy`.
+#
+# Pipeline shape (what you see in the workflow graph):
+#   prepare ─┬─ Type Check ─────────────────┐
+#            ├─ Unit Tests ────────────────┤
+#            ├─ E2E Tests (Playwright) ────┼─ QA Gate ─┬─ Trigger Harness Deploy (per site) ─ Promote PR
+#            └─ Frontend Build ─ Manifest Check ─┘     └─ Versioning ─ Trigger Prod (per site) ─ Release
+#                     (dist artifact)                          (main branch only)
+#
+# Multi-site deploys:
+#   The deploy-trigger jobs are a matrix over the repo variable DEPLOY_TARGETS
+#   (JSON array of site labels, e.g. ["site-a","site-b",...]). Unset, it
+#   defaults to ["personal"]. Each target fires the Harness webhook with its
+#   site label in the payload — one Harness execution per site.
 #
 # Compliance Note:
-# Production deployments are explicitly gated by the "production" environment's required-reviewer
-# protection rule. Deploys to production will pause until approved by authorized managers.
+# Production deployments are double-gated: GitHub's "production" environment
+# required-reviewer rule gates the trigger, and the Harness pipeline's
+# approval stage gates the actual `forge deploy`. Harness execution history
+# provides the deployment audit trail; GitHub Releases record what was
+# promoted. Rollback on failed production deploys is handled inside the
+# Harness pipeline (it redeploys the previous tag).
 #
 # Configuration Checklist:
-# - Secrets (Repository Secrets):
-#     - FORGE_EMAIL: Email associated with your Atlassian Developer account.
-#     - FORGE_API_TOKEN: API token created at id.atlassian.com for Forge CLI.
-#     - GH_PAT: Personal Access Token (PAT) with repo & workflow scopes to create PRs and push tags.
-# - Variables (Repository Variables):
-#     - DEVELOPMENT_SITE_URL: Jira/Confluence cloud URL for Development (e.g. dev-site.atlassian.net).
-#     - PRODUCTION_SITE_URL: Jira/Confluence cloud URL for Production (e.g. prod-site.atlassian.net).
-# - Environments (GitHub Settings -> Environments):
-#     - Create "development" environment.
-#     - Create "production" environment with "Required reviewers" protection enabled.
+# - Run the "Forge Builder Image" workflow once before the first CI run.
+# - Secrets: GH_PAT, HARNESS_WEBHOOK_URL. (No Atlassian credentials in GitHub:
+#   authenticated forge commands run only in Harness, sourced from Vault.)
+# - Variables: DEVELOPMENT_SITE_URL, PRODUCTION_SITE_URL,
+#   DEPLOY_TARGETS (optional JSON array; defaults to ["personal"]).
+# - Environments: "development", and "production" with required reviewers.
 # =======================================================================================
 
 name: CI/CD Deploy Workflow
@@ -41,84 +46,203 @@ permissions:
   contents: read
 
 jobs:
-  # -------------------------------------------------------------------------------------
-  # 1. QA - Runs on all pushes (development and main)
-  # -------------------------------------------------------------------------------------
-  qa:
-    name: QA Lint & Test
+  # ───────────────────────────── Stage 1: fail fast ─────────────────────────────
+  prepare:
+    name: Prepare (Install & Verify Deps)
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.22.0'
-          cache: "npm"
-
       - name: Install Root Dependencies
         run: npm ci
-
       - name: Install Frontend Dependencies
         working-directory: static/admin-page
         run: npm ci --legacy-peer-deps
 
+  # ─────────────────────────── Stage 2: parallel checks ─────────────────────────
+  typecheck:
+    name: Type Check
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
+        working-directory: static/admin-page
+        run: npm ci --legacy-peer-deps
       - name: Type-Checking (TypeScript)
         working-directory: static/admin-page
         run: npx tsc --noEmit || echo "No TS configured or completed"
 
-      - name: Run Tests
+  unit-tests:
+    name: Unit Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
         working-directory: static/admin-page
-        run: npm test -- --watchAll=false || echo "No test suite configured"
+        run: npm ci --legacy-peer-deps
+      - name: Run Unit Tests
+        working-directory: static/admin-page
+        run: npm test -- --watchAll=false || echo "No unit test suite configured yet"
 
-  # -------------------------------------------------------------------------------------
-  # 2. Deploy to Development - Runs only on development branch push after QA passes
-  # -------------------------------------------------------------------------------------
-  deploy-dev:
-    name: Deploy to Development
-    needs: qa
+  e2e-tests:
+    name: E2E Tests (Playwright)
+    needs: prepare
+    runs-on: ubuntu-latest
+    # Official Playwright image: browsers preinstalled, version must match
+    # the @playwright/test devDependency in static/admin-page/package.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
+        working-directory: static/admin-page
+        run: npm ci --legacy-peer-deps
+      - name: Run Playwright Suite
+        working-directory: static/admin-page
+        run: npx playwright test
+
+  frontend-build:
+    name: Frontend Build
+    needs: prepare
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install Frontend Dependencies
+        working-directory: static/admin-page
+        run: npm ci --legacy-peer-deps
+      - name: Build Frontend
+        working-directory: static/admin-page
+        run: npm run build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-page-dist
+          path: static/admin-page/dist
+          retention-days: 3
+
+  # ─────────────── Stage 3: checks that consume the build artifact ──────────────
+  # NOTE: a backend "Lint" job is intentionally absent — the repo has no ESLint
+  # config yet, and adding one surfaces 22 existing errors (including undefined
+  # variables in src/index.jsx error paths). Add the config + fixes in a
+  # dedicated change, then add a lint job to Stage 2.
+  #
+  # NOTE: `forge lint` is NOT run in CI — it requires Atlassian credentials,
+  # and keeping those out of GitHub means one less copy to rotate. The full
+  # authenticated lint runs at deploy time instead (the Harness pipeline's
+  # `forge deploy` runs without --no-verify). This job does the credential-free
+  # structural check that caught our earlier failure: every resource path the
+  # manifest references must actually exist.
+  manifest-check:
+    name: Manifest Resource Check
+    needs: frontend-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: admin-page-dist
+          path: static/admin-page/dist
+      - name: Verify manifest resource paths exist
+        run: |
+          set -eu
+          fail=0
+          paths=$(awk '/^resources:/{r=1;next} /^[a-z]/{r=0} r && /path:/{print $NF}' manifest.yml)
+          if [ -z "$paths" ]; then
+            echo "No resource paths found in manifest.yml — check the parser" >&2
+            exit 1
+          fi
+          for p in $paths; do
+            if [ -e "$p" ]; then
+              echo "OK: $p"
+            else
+              echo "MISSING: manifest references '$p' but it does not exist" >&2
+              fail=1
+            fi
+          done
+          exit $fail
+
+  # ───────────────────────────── Stage 4: the gate ──────────────────────────────
+  # Single fan-in node: point branch protection's required status check here
+  # instead of listing every QA job.
+  qa-gate:
+    name: QA Gate
+    needs: [typecheck, unit-tests, e2e-tests, manifest-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish gate summary
+        run: |
+          {
+            echo "## ✅ QA Gate — all checks green"
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| Type Check | ✅ |"
+            echo "| Unit Tests | ✅ |"
+            echo "| E2E Tests (Playwright) | ✅ |"
+            echo "| Frontend Build | ✅ |"
+            echo "| Manifest Resource Check | ✅ |"
+            echo ""
+            echo "Commit \`${GITHUB_SHA::7}\` is cleared for deployment."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────── Stage 5: deploy triggers (one node per site) ────────────────
+  trigger-deploy-dev:
+    name: Trigger Harness Deploy (Dev · ${{ matrix.target }})
+    needs: qa-gate
     if: github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJSON(vars.DEPLOY_TARGETS || '["personal"]') }}
     environment:
       name: development
       url: ${{ vars.DEVELOPMENT_SITE_URL }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.22.0'
-          cache: "npm"
-
-      - name: Install Root Dependencies
-        run: npm ci
-
-      - name: Install Frontend Dependencies & Build
-        working-directory: static/admin-page
+      - name: Fire Harness webhook (development · ${{ matrix.target }})
         run: |
-          npm ci --legacy-peer-deps
-          npm run build
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "env": "development",
+              "site": "${{ matrix.target }}",
+              "ref": "${{ github.sha }}",
+              "actor": "${{ github.actor }}",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' \
+            "${{ secrets.HARNESS_WEBHOOK_URL }}"
 
-      - name: Install Forge CLI
-        run: npm install -g @forge/cli
-
-      - name: Deploy to Forge Development
-        env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-        run: |
-          forge settings set usage-analytics false
-          forge deploy -e development --non-interactive --no-verify
-
-  # -------------------------------------------------------------------------------------
-  # 3. Promote development -> main - Automatically opens/updates promotion Pull Request
-  # -------------------------------------------------------------------------------------
+  # ─────────────────────── Stage 6: promotion & main-only path ──────────────────
   promote:
     name: Promote Dev to Main
-    needs: deploy-dev
+    needs: trigger-deploy-dev
     if: github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
     permissions:
@@ -132,7 +256,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          # Use GitHub CLI to create or verify PR. 
+          # Use GitHub CLI to create or verify PR.
           # Using PAT avoids double-run recursion because we can verify commits, but since it opens a PR,
           # it requires explicit manual merge and review before triggering main branch workflows.
           gh pr create \
@@ -141,12 +265,9 @@ jobs:
             --head development \
             --base main || echo "PR already exists or could not be created"
 
-  # -------------------------------------------------------------------------------------
-  # 4. Semantic Versioning - Runs on main branch push after QA passes
-  # -------------------------------------------------------------------------------------
   versioning:
     name: Semantic Versioning
-    needs: qa
+    needs: qa-gate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -165,115 +286,34 @@ jobs:
           github_token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           default_bump: patch
 
-  # -------------------------------------------------------------------------------------
-  # 5. Deploy to Production - Gated by Required Reviewer environment rule
-  # -------------------------------------------------------------------------------------
-  deploy-prod:
-    name: Deploy to Production
+  trigger-deploy-prod:
+    name: Trigger Harness Deploy (Prod · ${{ matrix.target }})
     needs: versioning
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: ${{ fromJSON(vars.DEPLOY_TARGETS || '["personal"]') }}
     environment:
       name: production
       url: ${{ vars.PRODUCTION_SITE_URL }}
     steps:
-      # Checkout the specific semantic version tag generated in the versioning step
-      - name: Checkout Version Tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.versioning.outputs.new_tag }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.22.0'
-          cache: "npm"
-
-      - name: Install Root Dependencies
-        run: npm ci
-
-      - name: Install Frontend Dependencies & Build
-        working-directory: static/admin-page
+      - name: Fire Harness webhook (production · ${{ matrix.target }})
         run: |
-          npm ci --legacy-peer-deps
-          npm run build
+          curl --fail-with-body -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "env": "production",
+              "site": "${{ matrix.target }}",
+              "ref": "${{ needs.versioning.outputs.new_tag }}",
+              "actor": "${{ github.actor }}",
+              "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' \
+            "${{ secrets.HARNESS_WEBHOOK_URL }}"
 
-      - name: Install Forge CLI
-        run: npm install -g @forge/cli
-
-      - name: Deploy to Forge Production
-        env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-        run: |
-          forge settings set usage-analytics false
-          forge deploy -e production --non-interactive --no-verify
-
-  # -------------------------------------------------------------------------------------
-  # 6. Rollback - Runs only if deploy-prod fails
-  # -------------------------------------------------------------------------------------
-  rollback:
-    name: Rollback Production Deploy
-    needs: deploy-prod
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Get Second Most Recent Tag
-        id: prev_tag
-        run: |
-          # Fetch all tags
-          git fetch --tags
-          # Get the second most recent tag
-          PREV_TAG=$(git tag --sort=-creatordate | sed -n '2p')
-          if [ -z "$PREV_TAG" ]; then
-            echo "Error: No previous tag found to roll back to!"
-            exit 1
-          fi
-          echo "Previous tag identified: $PREV_TAG"
-          echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
-
-      - name: Checkout Previous Tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.prev_tag.outputs.tag }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.22.0'
-          cache: "npm"
-
-      - name: Install Root Dependencies
-        run: npm ci
-
-      - name: Install Frontend Dependencies & Build
-        working-directory: static/admin-page
-        run: |
-          npm ci --legacy-peer-deps
-          npm run build
-
-      - name: Install Forge CLI
-        run: npm install -g @forge/cli
-
-      - name: Deploy Reverted Code to Production
-        env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
-        run: |
-          forge settings set usage-analytics false
-          forge deploy -e production --non-interactive --no-verify
-
-  # -------------------------------------------------------------------------------------
-  # 7. Release - Runs after successful production deploy
-  # -------------------------------------------------------------------------------------
   release:
     name: Create GitHub Release
-    needs: [versioning, deploy-prod]
+    needs: [versioning, trigger-deploy-prod]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

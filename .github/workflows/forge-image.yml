@@ -1,0 +1,68 @@
+# =======================================================================================
+# FORGE BUILDER IMAGE
+# =======================================================================================
+# Builds the repo's Dockerfile (Node 22 + newest @forge/cli) and publishes it to
+# GitHub Container Registry as:
+#   ghcr.io/<owner>/forge-cli:latest
+#   ghcr.io/<owner>/forge-cli:<forge-cli-version>   (e.g. 13.2.0)
+#
+# Runs:
+#   - weekly (Mon 06:00 UTC) so :latest tracks the newest Forge CLI release
+#   - on changes to the Dockerfile or this workflow
+#   - manually (workflow_dispatch) — run this ONCE after adding these files,
+#     before the first CI run, so the image exists for deploy.yml to pull.
+#
+# Compliance Note:
+# The version-pinned tag gives an immutable, auditable record of exactly which
+# CLI built each release; pin CI to it instead of :latest if change control
+# requires a review step before toolchain upgrades.
+# =======================================================================================
+
+name: Forge Builder Image
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main, development]
+    paths:
+      - Dockerfile
+      - .github/workflows/forge-image.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build & push forge-cli image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: docker build -t forge-cli:build .
+
+      - name: Determine Forge CLI version
+        id: version
+        run: |
+          FORGE_VERSION=$(docker run --rm forge-cli:build forge --version | tr -d '[:space:]')
+          echo "Forge CLI version: ${FORGE_VERSION}"
+          echo "forge_version=${FORGE_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/forge-cli"
+          docker tag forge-cli:build "${IMAGE}:latest"
+          docker tag forge-cli:build "${IMAGE}:${{ steps.version.outputs.forge_version }}"
+          docker push "${IMAGE}:latest"
+          docker push "${IMAGE}:${{ steps.version.outputs.forge_version }}"

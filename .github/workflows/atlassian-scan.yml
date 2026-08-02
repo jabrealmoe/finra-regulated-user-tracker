@@ -1,0 +1,31 @@
+# =======================================================================================
+# MANIFEST EGRESS COMPLIANCE SCAN
+# =======================================================================================
+# Submits this repo's Forge manifest to the CENTRAL egress policy defined in
+# jabrealmoe/ReusableWorkflow. The policy (approved endpoints, scanned keys,
+# failure behavior) lives entirely in the reusable workflow and cannot be
+# overridden here. Under the current central policy, every address under
+# permissions.external.fetch must reference an approved endpoint; apps with
+# no egress at all pass trivially.
+#
+# Compliance Note:
+# This gate documents that outbound data flow is change-controlled centrally,
+# supporting the app's SEC Rule 17a-4 tamper-evidence posture.
+# =======================================================================================
+
+name: Manifest Egress Compliance
+
+# Push scans run only on feature branches (feature/* or f*/ prefixes);
+# development and main are still gated via the pull_request trigger.
+on:
+  push:
+    branches:
+      - "feature/**"
+      - "f*/**"
+  pull_request:
+
+jobs:
+  manifest-scan:
+    uses: jabrealmoe/ReusableWorkflow/.github/workflows/atlassian-manifest-scan.yml@main
+    with:
+      manifest-path: manifest.yml
