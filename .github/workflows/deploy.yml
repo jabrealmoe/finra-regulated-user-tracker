@@ -7,7 +7,7 @@
 #   prepare ─┬─ Type Check ─────────────────┐
 #            ├─ Unit Tests ────────────────┤
 #            ├─ E2E Tests (Playwright) ────┼─ QA Gate ─┬─ Trigger Harness Deploy (per site) ─ Promote PR
-#            └─ Frontend Build ─ Manifest Lint ─┘      └─ Versioning ─ Trigger Prod (per site) ─ Release
+#            └─ Frontend Build ─ Manifest Check ─┘     └─ Versioning ─ Trigger Prod (per site) ─ Release
 #                     (dist artifact)                          (main branch only)
 #
 # Multi-site deploys:
@@ -26,7 +26,8 @@
 #
 # Configuration Checklist:
 # - Run the "Forge Builder Image" workflow once before the first CI run.
-# - Secrets: FORGE_EMAIL, FORGE_API_TOKEN, GH_PAT, HARNESS_WEBHOOK_URL.
+# - Secrets: GH_PAT, HARNESS_WEBHOOK_URL. (No Atlassian credentials in GitHub:
+#   authenticated forge commands run only in Harness, sourced from Vault.)
 # - Variables: DEVELOPMENT_SITE_URL, PRODUCTION_SITE_URL,
 #   DEPLOY_TARGETS (optional JSON array; defaults to ["personal"]).
 # - Environments: "development", and "production" with required reviewers.
@@ -150,41 +151,50 @@ jobs:
   # config yet, and adding one surfaces 22 existing errors (including undefined
   # variables in src/index.jsx error paths). Add the config + fixes in a
   # dedicated change, then add a lint job to Stage 2.
-  manifest-lint:
-    name: Forge Manifest Lint
+  #
+  # NOTE: `forge lint` is NOT run in CI — it requires Atlassian credentials,
+  # and keeping those out of GitHub means one less copy to rotate. The full
+  # authenticated lint runs at deploy time instead (the Harness pipeline's
+  # `forge deploy` runs without --no-verify). This job does the credential-free
+  # structural check that caught our earlier failure: every resource path the
+  # manifest references must actually exist.
+  manifest-check:
+    name: Manifest Resource Check
     needs: frontend-build
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/${{ github.repository_owner }}/forge-cli:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-      - name: Install Root Dependencies
-        run: npm ci
-      # forge lint validates that the manifest's admin-ui resource path
-      # (static/admin-page/dist) exists — reuse Stage 2's build artifact.
       - name: Download dist artifact
         uses: actions/download-artifact@v4
         with:
           name: admin-page-dist
           path: static/admin-page/dist
-      - name: Forge Manifest Lint
-        env:
-          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
-          FORGE_API_TOKEN: ${{ secrets.FORGE_API_TOKEN }}
+      - name: Verify manifest resource paths exist
         run: |
-          forge settings set usage-analytics false
-          forge lint
+          set -eu
+          fail=0
+          paths=$(awk '/^resources:/{r=1;next} /^[a-z]/{r=0} r && /path:/{print $NF}' manifest.yml)
+          if [ -z "$paths" ]; then
+            echo "No resource paths found in manifest.yml — check the parser" >&2
+            exit 1
+          fi
+          for p in $paths; do
+            if [ -e "$p" ]; then
+              echo "OK: $p"
+            else
+              echo "MISSING: manifest references '$p' but it does not exist" >&2
+              fail=1
+            fi
+          done
+          exit $fail
 
   # ───────────────────────────── Stage 4: the gate ──────────────────────────────
   # Single fan-in node: point branch protection's required status check here
   # instead of listing every QA job.
   qa-gate:
     name: QA Gate
-    needs: [typecheck, unit-tests, e2e-tests, manifest-lint]
+    needs: [typecheck, unit-tests, e2e-tests, manifest-check]
     runs-on: ubuntu-latest
     steps:
       - name: Publish gate summary
@@ -198,7 +208,7 @@ jobs:
             echo "| Unit Tests | ✅ |"
             echo "| E2E Tests (Playwright) | ✅ |"
             echo "| Frontend Build | ✅ |"
-            echo "| Forge Manifest Lint | ✅ |"
+            echo "| Manifest Resource Check | ✅ |"
             echo ""
             echo "Commit \`${GITHUB_SHA::7}\` is cleared for deployment."
           } >> "$GITHUB_STEP_SUMMARY"
